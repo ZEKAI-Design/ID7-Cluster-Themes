@@ -1,13 +1,13 @@
 # Cluster Themes for BMW G05
 
-0.7.0 是 2019 BMW X5 xDrive40i（G05、iDrive 7、12.3 英寸仪表）的停车验证包。中控页用示例数据预览样式。实际仪表预览使用收到的车况数据，缺失的读数以 `--` 显示。
+0.7.1 是 2019 BMW X5 xDrive40i（G05、iDrive 7、12.3 英寸仪表）的停车验证包。中控页用示例数据预览样式。实际仪表预览使用收到的车况数据，缺失的读数以 `--` 显示。
 
 ## 车机预览
 
 - 依赖 MGU Store 和已经运行的 `cluster-render`。安装包只包含仪表主题 App。
 - 主题包含 **BMW original**、**Five Dial**、**Silver Trio** 和 **Digital**。**Five Dial** 与 **Digital** 可在 **Customize** 分别设置四个位置，导航和媒体只出现在内圈选项。
 - **Silver Trio** 是劳斯莱斯风格的固定三圆布局。左侧显示转速，中央显示车速，右侧显示油量和续航。油量指针按 xDrive40i 约 83 L 油箱折算，外侧显示时间、外温和挡位。 [BMW Canada MY19 配置表](https://www.press.bmwgroup.com/canada/article/attachment/T0289548EN/432931)
-- 三套自定义主题使用 Hanken Grotesk，字形参照保时捷红盘仪表，字号较上一版缩小 10%。车速和转速刻度用较粗字重，数字采用等宽排版。实时 Waze 画面内的文字由 Waze 渲染。
+- 三套自定义主题使用 Hanken Grotesk，字形参照保时捷红盘仪表，字号较上一版缩小 10%。车速和转速刻度用较粗字重，数字采用等宽排版。实时 Waze 画面内的文字由 Waze 渲染。 挡位信号使用车机支持的订阅接口。
 - **Five Dial** 的 **Face colour** 有原版深蓝、石板蓝、青绿、紫红、中央红环五套配色。**Digital speed** 可选 **Centre** 或 **Lower**。低位模式把数字车速放到指针轴下方，并显示从圆心出发的转速长针。两项设置独立保存，也可从中控预览左侧的快捷卡片切换。
 - 车辆停稳挂 P 挡，选择 **Preview on cluster**。需要同时读到明确的 P 挡和零车速。一次最多 12 秒。选择 **BMW original**、离开页面、换挡、信号中断或渲染连接断开时，App 会撤下主题。启动默认显示原厂。当前车机上的告警层和恢复时序还需实车验证。
 - Waze 圆内窗口需要已经可用、支持 Cluster Layouts 窗口交接的 Waze on Cluster 版本。标准居中地图版本会显示你选的备用内容。地图流停止、断开或窗口被另一个 App 占用时也使用备用内容。
