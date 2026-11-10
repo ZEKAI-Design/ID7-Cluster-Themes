@@ -1,6 +1,6 @@
-# Cluster Themes for BMW G05
+# ID7 Cluster Themes for BMW G05
 
-0.7.1 是 2019 BMW X5 xDrive40i（G05、iDrive 7、12.3 英寸仪表）的停车验证包。中控页用示例数据预览样式。实际仪表预览使用收到的车况数据，缺失的读数以 `--` 显示。
+0.7.2 是 2019 BMW X5 xDrive40i（G05、iDrive 7、12.3 英寸仪表）的停车验证包。中控页用示例数据预览样式。实际仪表预览使用收到的车况数据，缺失的读数以 `--` 显示。
 
 ## 车机预览
 
@@ -15,11 +15,11 @@
 
 ## MGU Store 安装
 
-在 MGU Store 打开 **Settings → Add source**，输入 `ZEKAI-Design/g05-cluster-themes`，选择 **Releases**，然后安装 **Cluster Themes (Parked Preview)**。需要 `cluster-render` 0.5.2 或更新版本，可从 MGU Store 的 [idrive-apps](https://github.com/robertnisipeanu/idrive-apps) 来源获取。
+在 MGU Store 打开 **Settings → Add source**，输入 `ZEKAI-Design/ID7-Cluster-Themes`，选择 **Releases**，然后安装 **ID7 Cluster Themes**。需要 `cluster-render` 0.5.2 或更新版本，可从 MGU Store 的 [idrive-apps](https://github.com/robertnisipeanu/idrive-apps) 来源获取。
 
 ## USB
 
-将 USB 压缩包解压到 U 盘根目录，保留 `mgu-repo/cluster-themes/catalog.json` 和同一目录的 `.tgz`。在 MGU Store 的 USB 来源中安装 **Cluster Themes (Parked Preview)**。停车且依赖已运行时再启动仪表预览。
+将 USB 压缩包解压到 U 盘根目录，保留 `mgu-repo/cluster-themes/catalog.json` 和同一目录的 `.tgz`。在 MGU Store 的 USB 来源中安装 **ID7 Cluster Themes**。停车且依赖已运行时再启动仪表预览。
 
 ## 构建与验证
 

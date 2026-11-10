@@ -1,8 +1,8 @@
 {
   "id": "zekai_cluster_themes",
-  "title": "Cluster Themes",
+  "title": "ID7 Cluster Themes",
   "vendor": "ZEKAI Design",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "loggingId": "ZCT1",
   "description": "Five Dial, Silver Trio and Digital themes with a 12-second parked instrument preview. Optional Waze map with a compatible renderer; live BMW media unavailable.",
   "iconGlyph": "gauge",
@@ -13,7 +13,7 @@
     {
       "name": "MAIN",
       "kind": "canvas",
-      "title": "Cluster Themes",
+      "title": "ID7 Cluster Themes",
       "buttons": [
         [
           "BTN_SETTINGS",
