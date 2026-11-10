@@ -1,0 +1,528 @@
+{
+  "id": "zekai_cluster_themes",
+  "title": "Cluster Themes",
+  "vendor": "ZEKAI Design",
+  "version": "0.7.0",
+  "loggingId": "ZCT1",
+  "description": "Five Dial, Silver Trio and Digital themes with a 12-second parked instrument preview. Optional Waze map with a compatible renderer; live BMW media unavailable.",
+  "iconGlyph": "gauge",
+  "mguHmi": [
+    "ID7"
+  ],
+  "screens": [
+    {
+      "name": "MAIN",
+      "kind": "canvas",
+      "title": "Cluster Themes",
+      "buttons": [
+        [
+          "BTN_SETTINGS",
+          "Customize"
+        ],
+        [
+          "BTN_APPLY",
+          "Preview on cluster"
+        ],
+        [
+          "BTN_RESTORE",
+          "BMW original"
+        ]
+      ]
+    }
+  ],
+  "signals": {
+    "de.bmw.infotainment.vehicle.Vehicle2": {
+      "statusCarSpeed2": "rs"
+    },
+    "de.bmw.infrastructure.VehicleInformation": {
+      "statusGearboxDrive": "rs",
+      "DataPowerTrain2": "rs"
+    },
+    "de.bmw.infotainment.vehicle.CDS": {
+      "statusEngineSpeed2": "rs",
+      "statusEngineTemperature": "rs"
+    },
+    "de.bmw.infotainment.vehicle.CDS2": {
+      "statusLateralAccelerationMassCenter": "rs",
+      "statusLongitudinalAccelerationMassCenter": "rs",
+      "_optional": "G meter"
+    },
+    "de.bmw.infotainment.KombiIF": {
+      "statusRangeTankStatus": "rs",
+      "_optional": "Fuel range"
+    },
+    "de.bmw.infotainment.vehicle.Vehicle": {
+      "statusNewCurrentUnitsStatusExt": "rs",
+      "_optional": "Tyre pressure unit"
+    },
+    "de.bmw.infotainment.vehicle.TPMS": {
+      "statusTyrePressure": "rs",
+      "_optional": "Tyre pressures"
+    },
+    "de.bmw.infrastructure.EnvironmentalInformation": {
+      "ExteriorTemperature": "s",
+      "_optional": "Outside temperature"
+    }
+  },
+  "settings": [
+    {
+      "key": "instrumentTheme",
+      "label": "Instrument theme",
+      "type": "choice",
+      "default": "five",
+      "options": [
+        [
+          "stock",
+          "BMW original"
+        ],
+        [
+          "five",
+          "Five Dial"
+        ],
+        [
+          "silver",
+          "Silver Trio"
+        ],
+        [
+          "digital",
+          "Digital"
+        ]
+      ]
+    },
+    {
+      "key": "five_faceColour",
+      "label": "Five Dial / Face colour",
+      "type": "choice",
+      "default": "navy",
+      "when": {
+        "instrumentTheme": "five"
+      },
+      "options": [
+        ["navy", "Original navy"],
+        ["blue", "Slate blue"],
+        ["teal", "Petrol green"],
+        ["magenta", "Magenta"],
+        ["red", "Red centre ring"]
+      ]
+    },
+    {
+      "key": "five_speedPosition",
+      "label": "Five Dial / Digital speed",
+      "type": "choice",
+      "default": "centre",
+      "when": {
+        "instrumentTheme": "five"
+      },
+      "options": [
+        ["centre", "Centre"],
+        ["lower", "Lower"]
+      ]
+    },
+    {
+      "key": "five_leftOuter",
+      "label": "Five Dial / Left outer",
+      "type": "choice",
+      "default": "coolant",
+      "when": {
+        "instrumentTheme": "five"
+      },
+      "options": [
+        [
+          "coolant",
+          "Coolant"
+        ],
+        [
+          "oil",
+          "Engine oil"
+        ],
+        [
+          "ambient",
+          "Outside temperature"
+        ],
+        [
+          "range",
+          "Fuel range"
+        ],
+        [
+          "clock",
+          "Clock"
+        ],
+        [
+          "none",
+          "Blank"
+        ]
+      ]
+    },
+    {
+      "key": "five_leftInner",
+      "label": "Five Dial / Left inner",
+      "type": "choice",
+      "default": "media",
+      "when": {
+        "instrumentTheme": "five"
+      },
+      "options": [
+        [
+          "media",
+          "Now playing (demo)"
+        ],
+        [
+          "waze",
+          "Waze"
+        ],
+        [
+          "g",
+          "G meter"
+        ],
+        [
+          "tyres",
+          "Tyre pressures"
+        ],
+        [
+          "temps",
+          "Oil and coolant"
+        ],
+        [
+          "coolant",
+          "Coolant"
+        ],
+        [
+          "oil",
+          "Engine oil"
+        ],
+        [
+          "ambient",
+          "Outside temperature"
+        ],
+        [
+          "range",
+          "Fuel range"
+        ],
+        [
+          "clock",
+          "Clock"
+        ],
+        [
+          "none",
+          "Blank"
+        ]
+      ]
+    },
+    {
+      "key": "five_rightInner",
+      "label": "Five Dial / Right inner",
+      "type": "choice",
+      "default": "waze",
+      "when": {
+        "instrumentTheme": "five"
+      },
+      "options": [
+        [
+          "media",
+          "Now playing (demo)"
+        ],
+        [
+          "waze",
+          "Waze"
+        ],
+        [
+          "g",
+          "G meter"
+        ],
+        [
+          "tyres",
+          "Tyre pressures"
+        ],
+        [
+          "temps",
+          "Oil and coolant"
+        ],
+        [
+          "coolant",
+          "Coolant"
+        ],
+        [
+          "oil",
+          "Engine oil"
+        ],
+        [
+          "ambient",
+          "Outside temperature"
+        ],
+        [
+          "range",
+          "Fuel range"
+        ],
+        [
+          "clock",
+          "Clock"
+        ],
+        [
+          "none",
+          "Blank"
+        ]
+      ]
+    },
+    {
+      "key": "five_rightOuter",
+      "label": "Five Dial / Right outer",
+      "type": "choice",
+      "default": "oil",
+      "when": {
+        "instrumentTheme": "five"
+      },
+      "options": [
+        [
+          "coolant",
+          "Coolant"
+        ],
+        [
+          "oil",
+          "Engine oil"
+        ],
+        [
+          "ambient",
+          "Outside temperature"
+        ],
+        [
+          "range",
+          "Fuel range"
+        ],
+        [
+          "clock",
+          "Clock"
+        ],
+        [
+          "none",
+          "Blank"
+        ]
+      ]
+    },
+    {
+      "key": "five_fallback",
+      "label": "Five Dial / Waze fallback",
+      "type": "choice",
+      "default": "g",
+      "when": {
+        "instrumentTheme": "five"
+      },
+      "options": [
+        [
+          "g",
+          "G meter"
+        ],
+        [
+          "temps",
+          "Oil and coolant"
+        ],
+        [
+          "none",
+          "Blank"
+        ]
+      ]
+    },
+    {
+      "key": "digital_leftOuter",
+      "label": "Digital / Left outer",
+      "type": "choice",
+      "default": "ambient",
+      "when": {
+        "instrumentTheme": "digital"
+      },
+      "options": [
+        [
+          "coolant",
+          "Coolant"
+        ],
+        [
+          "oil",
+          "Engine oil"
+        ],
+        [
+          "ambient",
+          "Outside temperature"
+        ],
+        [
+          "range",
+          "Fuel range"
+        ],
+        [
+          "clock",
+          "Clock"
+        ],
+        [
+          "none",
+          "Blank"
+        ]
+      ]
+    },
+    {
+      "key": "digital_leftInner",
+      "label": "Digital / Left inner",
+      "type": "choice",
+      "default": "temps",
+      "when": {
+        "instrumentTheme": "digital"
+      },
+      "options": [
+        [
+          "media",
+          "Now playing (demo)"
+        ],
+        [
+          "waze",
+          "Waze"
+        ],
+        [
+          "g",
+          "G meter"
+        ],
+        [
+          "tyres",
+          "Tyre pressures"
+        ],
+        [
+          "temps",
+          "Oil and coolant"
+        ],
+        [
+          "coolant",
+          "Coolant"
+        ],
+        [
+          "oil",
+          "Engine oil"
+        ],
+        [
+          "ambient",
+          "Outside temperature"
+        ],
+        [
+          "range",
+          "Fuel range"
+        ],
+        [
+          "clock",
+          "Clock"
+        ],
+        [
+          "none",
+          "Blank"
+        ]
+      ]
+    },
+    {
+      "key": "digital_rightInner",
+      "label": "Digital / Right inner",
+      "type": "choice",
+      "default": "g",
+      "when": {
+        "instrumentTheme": "digital"
+      },
+      "options": [
+        [
+          "media",
+          "Now playing (demo)"
+        ],
+        [
+          "waze",
+          "Waze"
+        ],
+        [
+          "g",
+          "G meter"
+        ],
+        [
+          "tyres",
+          "Tyre pressures"
+        ],
+        [
+          "temps",
+          "Oil and coolant"
+        ],
+        [
+          "coolant",
+          "Coolant"
+        ],
+        [
+          "oil",
+          "Engine oil"
+        ],
+        [
+          "ambient",
+          "Outside temperature"
+        ],
+        [
+          "range",
+          "Fuel range"
+        ],
+        [
+          "clock",
+          "Clock"
+        ],
+        [
+          "none",
+          "Blank"
+        ]
+      ]
+    },
+    {
+      "key": "digital_rightOuter",
+      "label": "Digital / Right outer",
+      "type": "choice",
+      "default": "range",
+      "when": {
+        "instrumentTheme": "digital"
+      },
+      "options": [
+        [
+          "coolant",
+          "Coolant"
+        ],
+        [
+          "oil",
+          "Engine oil"
+        ],
+        [
+          "ambient",
+          "Outside temperature"
+        ],
+        [
+          "range",
+          "Fuel range"
+        ],
+        [
+          "clock",
+          "Clock"
+        ],
+        [
+          "none",
+          "Blank"
+        ]
+      ]
+    },
+    {
+      "key": "digital_fallback",
+      "label": "Digital / Waze fallback",
+      "type": "choice",
+      "default": "g",
+      "when": {
+        "instrumentTheme": "digital"
+      },
+      "options": [
+        [
+          "g",
+          "G meter"
+        ],
+        [
+          "temps",
+          "Oil and coolant"
+        ],
+        [
+          "none",
+          "Blank"
+        ]
+      ]
+    }
+  ]
+}
