@@ -2,6 +2,7 @@
 
 const { silverDials } = require('./silver-dials');
 const { instrumentType } = require('./instrument-type');
+const { SILVER_SIDE_DIALS } = require('./panel-layout');
 
 const INK = '#eef4ff';
 const SOFT = '#acbbd5';
@@ -14,10 +15,11 @@ const PALETTES = {
     red: { rim: '#bdafb8', edge: '#3c343e', face: '#080910', glow: '#14121b', ring: '#ca234c' },
 };
 const SLOTS = ['leftOuter', 'leftInner', 'rightInner', 'rightOuter'];
+const SILVER_SLOTS = Object.keys(SILVER_SIDE_DIALS);
 const NAMES = {
     coolant: 'Coolant', oil: 'Engine oil', ambient: 'Outside temperature', range: 'Fuel range',
     clock: 'Clock', g: 'G meter', tyres: 'Tyre pressures', temps: 'Oil and coolant',
-    media: 'Now playing', waze: 'Waze', none: 'Blank',
+    media: 'Now playing', waze: 'Waze', none: 'Blank', rpm: 'Engine RPM', fuelRange: 'Fuel & range',
 };
 const SHORT = { coolant: 'COOLANT', oil: 'OIL', ambient: 'OUTSIDE', range: 'RANGE' };
 const MAP_ROADS = [
@@ -61,14 +63,13 @@ function panel(canvas, theme, selections, data, opts) {
     const x = (v) => ox + v * scale;
     const y = (v) => oy + v * scale;
     if (opts.background !== false) canvas.fillRect(x(0), y(0), 960 * scale, 320 * scale, '#030507');
-    if (theme === 'silver') return silverDials(canvas, data, opts);
     const arc = (cx, cy, r0, r1, a0, a1, color, style) =>
         canvas.arc(x(cx), y(cy), r0 * scale, r1 * scale, a0, a1, color, style);
     const disc = (cx, cy, r, color) => canvas.circle(x(cx), y(cy), r * scale, color);
     const box = (lx, ly, w, h, r, color) => canvas.roundRect(x(lx), y(ly), w * scale, h * scale, r * scale, color);
     const line = (ax, ay, bx, by, width, color) =>
         canvas.line(x(ax), y(ay), x(bx), y(by), width * scale, color);
-    const { text, measure, fitBold } = instrumentType(canvas, x, y, scale, INK);
+    const { text, fitBold } = instrumentType(canvas, x, y, scale, INK, theme === 'five' ? 0.9 : 1);
     const quad = (pts, color) => canvas.quad(pts.map(([px, py]) => [x(px), y(py)]), color);
     const trace = (pts, width, color) => {
         for (let i = 1; i < pts.length; i++) line(...pts[i - 1], ...pts[i], width, color);
@@ -143,7 +144,7 @@ function panel(canvas, theme, selections, data, opts) {
     };
     const paintSlot = (kind, cx, cy) => {
         if (kind === 'none') return;
-        if (kind === 'clock') return labels(cx, cy, 'TIME', opts.clock);
+        if (kind === 'clock') return labels(cx, cy, 'TIME', opts.clock || '--:--');
         if (theme === 'five' && (kind === 'oil' || kind === 'coolant')) return temperature(kind, cx, cy);
         if (SHORT[kind]) {
             const unit = kind === 'range' ? ' km' : '°C';
@@ -184,6 +185,8 @@ function panel(canvas, theme, selections, data, opts) {
         }
         if (kind === 'waze') return demoMap(cx, cy);
     };
+
+    if (theme === 'silver') return silverDials(canvas, data, opts, selections, paintSlot);
 
     if (theme === 'stock') {
         text('BMW original', 480, 156, 38);
@@ -271,18 +274,14 @@ function panel(canvas, theme, selections, data, opts) {
         disc(centreX, centreY, 7.5, '#657795');
         disc(centreX - 1, centreY - 1, 4, '#9aa9c1');
         text('RPM x 1000', centreX, 136, 12, SOFT, 'bold');
-        const baseline = 214;
-        const unit = measure('km/h', 14, 'medium');
-        const size = fitBold(speed, 44, 82 - unit - 6);
-        const digits = measure(speed, size, 'bold');
-        text(speed, centreX - (unit + 6) / 2, baseline, size, INK, 'bold');
-        text('km/h', centreX + (digits + 6) / 2, baseline, 14, INK, 'medium');
+        text(speed, centreX, 214, fitBold(speed, 44, 80), INK, 'bold');
     } else {
         text(speed, centreX, 178, fitBold(speed, 62, 106), INK, 'bold');
-        text('km/h', centreX, 204, 18, INK, 'medium');
     }
-    text(number(data.range) + ' km', centreX, 248, 17, INK, 'medium');
-    arc(centreX, centreY, 98, 101, 157, 203, '#dce7ff', { round: true });
+    text('km/h', centreX, lowSpeed ? 226 : 204, 10, INK, 'medium');
+    const rangeArcRadius = 98;
+    text(number(data.range) + ' km', centreX, centreY + rangeArcRadius - 7, 17, INK, 'medium');
+    arc(centreX, centreY, rangeArcRadius, 101, 157, 203, '#dce7ff', { round: true });
 }
 
-module.exports = { panel, SLOTS, NAMES, DEMO, PALETTES };
+module.exports = { panel, SLOTS, SILVER_SLOTS, NAMES, DEMO, PALETTES };

@@ -4,7 +4,7 @@ const { EventEmitter } = require('events');
 const { ClusterRender } = require('./cluster_render_client');
 const { Car } = require('./car');
 const { MapWindow } = require('./map-window');
-const { SLOTS } = require('./dials');
+const { SLOTS, SILVER_SLOTS } = require('./dials');
 const { PANEL_WIDTH, PANEL_HEIGHT } = require('./panel-layout');
 const { renderPanelFrame, sendPanelFrame } = require('./panel-frame');
 
@@ -51,10 +51,11 @@ class ClusterService extends EventEmitter {
     }
 
     selections(theme) {
-        if (theme === 'stock' || theme === 'silver' || theme === 'vdoRetro') return {};
+        if (theme === 'stock' || theme === 'vdoRetro') return {};
         if (theme === 'wazeFull') return { mapMode: 'full' };
         const slots = {};
-        for (const key of SLOTS.concat('fallback')) slots[key] = this.choice(theme + '_' + key);
+        const keys = theme === 'silver' ? SILVER_SLOTS : SLOTS;
+        for (const key of keys.concat('fallback')) slots[key] = this.choice(theme + '_' + key);
         if (theme === 'five') {
             slots.faceColour = this.choice('five_faceColour');
             slots.speedPosition = this.choice('five_speedPosition');

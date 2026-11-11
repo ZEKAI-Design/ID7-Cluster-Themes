@@ -3,13 +3,12 @@
 const mgu = require('./kit/mgu');
 const { Canvas } = require('./kit/canvas');
 const { ClusterService } = require('./cluster-service');
-const { panel, SLOTS, NAMES, DEMO, PALETTES } = require('./dials');
+const { panel, SLOTS, SILVER_SLOTS, NAMES, DEMO, PALETTES } = require('./dials');
 const { wazeFullPanel } = require('./waze-full-screen');
 const { vdoPanel } = require('./vdo-retro');
 
 const THEMES = [['stock', 'BMW original'], ['five', 'Five Dial'], ['silver', 'Silver Trio'], ['digital', 'Digital'], ['wazeFull', 'Waze Full Map'], ['vdoRetro', 'VDO Retro 2000']];
 const SLOT_LABELS = ['Left outer', 'Left inner', 'Right inner', 'Right outer'];
-const SILVER_READOUTS = [['Left dial', 'Engine RPM'], ['Centre dial', 'Vehicle speed'], ['Right dial', 'Fuel & range']];
 
 mgu.run({
     background(context) {
@@ -25,10 +24,11 @@ mgu.run({
         }
 
         function selections(theme) {
-            if (theme === 'stock' || theme === 'silver' || theme === 'vdoRetro') return {};
+            if (theme === 'stock' || theme === 'vdoRetro') return {};
             if (theme === 'wazeFull') return { mapMode: 'full' };
             const slots = {};
-            for (const key of SLOTS.concat('fallback')) slots[key] = choice(theme + '_' + key);
+            const keys = theme === 'silver' ? SILVER_SLOTS : SLOTS;
+            for (const key of keys.concat('fallback')) slots[key] = choice(theme + '_' + key);
             if (theme === 'five') {
                 slots.faceColour = choice('five_faceColour');
                 slots.speedPosition = choice('five_speedPosition');
@@ -95,7 +95,11 @@ mgu.run({
             }
             const readouts = theme === 'vdoRetro' ? [['Speed', 'MPH + km/h dual scale'], ['Engine', 'RPM / fuel / coolant'], ['Trip', 'Odometer / trip / AVG MPG']]
                 : theme === 'wazeFull' ? [['Map', 'Full instrument display'], ['Top', 'Speed + time + gear'], ['Bottom', 'Range + RPM + temperatures']]
-                : theme === 'silver' ? SILVER_READOUTS
+                : theme === 'silver' ? [
+                    ['Left dial', NAMES[slots.leftInner], 'leftInner'],
+                    ['Centre dial', 'Vehicle speed'],
+                    ['Right dial', NAMES[slots.rightInner], 'rightInner'],
+                ]
                 : SLOTS.map((key, i) => [SLOT_LABELS[i], NAMES[slots[key]] || 'BMW original', key]);
             const column = Math.floor(1212 / readouts.length);
             readouts.forEach(([title, value, key], i) => {

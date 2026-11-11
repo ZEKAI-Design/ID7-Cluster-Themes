@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { PANEL_WIDTH, PANEL_HEIGHT, panelLayout } = require('./panel-layout');
+const { PANEL_WIDTH, PANEL_HEIGHT, panelLayout, SILVER_SIDE_DIALS, SILVER_SIDE_Y } = require('./panel-layout');
 
 const STATUS_AGE_MS = 2500;
 const REFRESH_MS = 750;
@@ -94,8 +94,10 @@ class MapWindow {
 function rectangle(side, theme) {
     if (side === 'fullMap') return { x: 0, y: 0, w: PANEL_WIDTH, h: PANEL_HEIGHT };
     const layout = panelLayout(theme);
-    const x = Math.round(layout.x + (MAP_SLOT[side] - 60) * layout.scale);
-    const y = Math.round(layout.y + 137.5 * layout.scale);
+    const cx = theme === 'silver' ? SILVER_SIDE_DIALS[side] : MAP_SLOT[side];
+    const top = theme === 'silver' ? SILVER_SIDE_Y - 26.5 : 137.5;
+    const x = Math.round(layout.x + (cx - 60) * layout.scale);
+    const y = Math.round(layout.y + top * layout.scale);
     return { x, y, w: Math.round(120 * layout.scale), h: Math.round(53 * layout.scale) };
 }
 

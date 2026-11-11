@@ -2,7 +2,7 @@
   "id": "zekai_cluster_themes",
   "title": "ID7 Cluster Themes",
   "vendor": "ZEKAI Design",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "loggingId": "ZCT1",
   "description": "Persistent, auto-starting instrument themes for BMW iDrive 7. Choose a theme in the app; select BMW original to turn the overlay off.",
   "autostart": true,
@@ -336,6 +336,66 @@
           "none",
           "Blank"
         ]
+      ]
+    },
+    {
+      "key": "silver_leftInner",
+      "label": "Silver Trio / Left dial",
+      "type": "choice",
+      "default": "rpm",
+      "when": {
+        "instrumentTheme": "silver"
+      },
+      "options": [
+        ["rpm", "Engine RPM"],
+        ["media", "Now playing (demo)"],
+        ["waze", "Waze"],
+        ["g", "G meter"],
+        ["tyres", "Tyre pressures"],
+        ["temps", "Oil and coolant"],
+        ["coolant", "Coolant"],
+        ["oil", "Engine oil"],
+        ["ambient", "Outside temperature"],
+        ["range", "Fuel range"],
+        ["clock", "Clock"],
+        ["none", "Blank"]
+      ]
+    },
+    {
+      "key": "silver_rightInner",
+      "label": "Silver Trio / Right dial",
+      "type": "choice",
+      "default": "fuelRange",
+      "when": {
+        "instrumentTheme": "silver"
+      },
+      "options": [
+        ["fuelRange", "Fuel & range"],
+        ["media", "Now playing (demo)"],
+        ["waze", "Waze"],
+        ["g", "G meter"],
+        ["tyres", "Tyre pressures"],
+        ["temps", "Oil and coolant"],
+        ["coolant", "Coolant"],
+        ["oil", "Engine oil"],
+        ["ambient", "Outside temperature"],
+        ["range", "Fuel range"],
+        ["clock", "Clock"],
+        ["none", "Blank"]
+      ]
+    },
+    {
+      "key": "silver_fallback",
+      "label": "Silver Trio / Waze fallback",
+      "type": "choice",
+      "default": "g",
+      "when": {
+        "instrumentTheme": "silver"
+      },
+      "options": [
+        ["g", "G meter"],
+        ["temps", "Oil and coolant"],
+        ["none", "Blank"]
       ]
     },
     {

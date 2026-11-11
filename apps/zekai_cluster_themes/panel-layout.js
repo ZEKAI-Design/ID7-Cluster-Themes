@@ -2,6 +2,8 @@
 
 const PANEL_WIDTH = 1920;
 const PANEL_HEIGHT = 720;
+const SILVER_SIDE_DIALS = { leftInner: 265, rightInner: 695 };
+const SILVER_SIDE_Y = 171;
 
 function panelLayout(theme) {
     if (theme === 'five') {
@@ -11,4 +13,4 @@ function panelLayout(theme) {
     return { scale: 2, x: 0, y: 40 };
 }
 
-module.exports = { PANEL_WIDTH, PANEL_HEIGHT, panelLayout };
+module.exports = { PANEL_WIDTH, PANEL_HEIGHT, panelLayout, SILVER_SIDE_DIALS, SILVER_SIDE_Y };

@@ -1,12 +1,12 @@
 'use strict';
 
 const { instrumentType } = require('./instrument-type');
+const { SILVER_SIDE_DIALS, SILVER_SIDE_Y: SIDE_Y } = require('./panel-layout');
 
 // 2019 X5 xDrive40i, BMW Canada MY19 product guide. The raw KombiIF field is litres.
 const TANK_LITRES = 83;
 const SPEED_SCALE_KMH = 260;
 const RPM_SCALE = 8000;
-const SIDE_Y = 171;
 const CENTRE_Y = 165;
 const CHROME = '#e8e9ed';
 const SILVER = '#bec2cb';
@@ -29,7 +29,7 @@ function valueText(value, decimals = 0) {
     return Number.isFinite(value) ? value.toFixed(decimals) : '--';
 }
 
-function silverDials(canvas, data, opts) {
+function silverDials(canvas, data, opts, selections, paintSlot) {
     const readings = opts.demo ? DEMO : data;
     const scale = opts.scale || 1;
     const x = (v) => (opts.x || 0) + v * scale;
@@ -47,7 +47,9 @@ function silverDials(canvas, data, opts) {
         line(point(cx, cy, angle, inner), point(cx, cy, angle, outer), width, colour);
     }
 
-    function sideDial(cx, left, value) {
+    function sideDial(slot, defaultKind, value) {
+        const cx = SILVER_SIDE_DIALS[slot];
+        const left = slot === 'leftInner';
         const r = 96;
         const start = left ? 137 : -44;
         const end = left ? 405 : 224;
@@ -62,6 +64,11 @@ function silverDials(canvas, data, opts) {
         ring(cx, SIDE_Y, r - 5, r - 2, start, end, '#181b22', [open, '#515763', '#42454e', '#777c85', open]);
         ring(cx, SIDE_Y, r - 2, r + 1, start, end, CHROME, [open, '#e5e6ec', '#fbfaf7', '#dbdce5', open]);
 
+        const kind = selections[slot] || defaultKind;
+        if (kind !== defaultKind) {
+            if (opts.mapSlot !== slot) paintSlot(kind, cx, SIDE_Y);
+            return;
+        }
         const sign = left ? -1 : 1;
         for (let n = 0; n <= 42; n++) {
             const angle = sign * n * (180 / 42);
@@ -85,13 +92,8 @@ function silverDials(canvas, data, opts) {
 
     const rpm = fraction(readings.rpm, RPM_SCALE);
     const fuel = fraction(readings.fuelLitres, TANK_LITRES);
-    sideDial(265, true, rpm);
-    sideDial(695, false, fuel);
-
-    text(valueText(readings.rpm), 318, SIDE_Y + 9, 28);
-    text('RPM', 318, SIDE_Y + 29, 12, SILVER, 'bold', 1.0);
-    text(valueText(readings.range), 644, SIDE_Y + 9, 32);
-    text('KM RANGE', 644, SIDE_Y + 29, 11, SILVER, 'bold', 0.9);
+    sideDial('leftInner', 'rpm', rpm);
+    sideDial('rightInner', 'fuelRange', fuel);
 
     disc(480, CENTRE_Y, 121, '#2e3137');
     ring(480, CENTRE_Y, 119, 121, 0, 360, '#92949b', ['#9598a0', '#464951', '#252830', '#5f636b', '#9598a0']);
@@ -122,6 +124,11 @@ function silverDials(canvas, data, opts) {
     const speedText = valueText(speed);
     text(speedText, 480, CENTRE_Y + 58, fitBold(speedText, 54, 130), '#292c32', 'bold');
     text('KM/H', 480, CENTRE_Y + 76, 13, '#56585d', 'bold', 1.1);
+
+    text(valueText(readings.rpm), 360, 280, 25);
+    text('RPM', 360, 298, 11, SILVER, 'bold', 1.0);
+    text(valueText(readings.range), 600, 280, 25);
+    text('KM RANGE', 600, 298, 11, SILVER, 'bold', 0.9);
 
     const clock = opts.demo ? DEMO.clock : opts.clock || '--:--';
     text(clock, 155, 249, 19, SILVER);

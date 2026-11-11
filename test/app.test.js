@@ -59,9 +59,19 @@ test('Waze window is leased only while the map is live and respects other provid
         now += 800;
         report({ target: 'panel', state: 'showing', cluster: 1 });
         assert.equal(lease.update(choices), 'rightInner');
+        assert.equal(lease.update(choices, 'silver'), null);
+        assert.equal(fs.existsSync(file), false);
+        now += 800;
+        report({ target: 'map', state: 'showing', cluster: 1 });
+        assert.equal(lease.update(choices, 'silver'), null);
+        const silverRect = rectangle('rightInner', 'silver');
+        assert.equal(fs.readFileSync(file, 'utf8'), 'panel ' + [silverRect.x, silverRect.y, silverRect.w, silverRect.h].join(' ') + '\n');
+        now += 800;
+        report({ target: 'panel', state: 'showing', cluster: 1 });
+        assert.equal(lease.update(choices, 'silver'), 'rightInner');
         now += 800;
         report({ target: 'panel', state: 'frozen', cluster: 1 });
-        assert.equal(lease.update(choices), null);
+        assert.equal(lease.update(choices, 'silver'), null);
         assert.equal(fs.existsSync(file), false);
 
         fs.writeFileSync(file, 'another app');
@@ -105,21 +115,24 @@ test('Five Dial palettes change the actual face and lower speed stays separate f
         const drawText = canvas.text.bind(canvas);
         canvas.text = (value, x, y, ...args) => {
             const width = drawText(value, x, y, ...args);
-            labels.push([value, x, y, width]);
+            labels.push([value, x, y, width, args[0]]);
             return width;
         };
         for (const speedPosition of ['centre', 'lower']) {
             labels.length = 0;
             panel(canvas, 'five', { faceColour, speedPosition }, data, { clock: '10:53' });
-            const [, speedX, speedY, speedWidth] = labels.find(([value]) => value === '126');
+            const [, speedX, speedY, speedWidth, speedSize] = labels.find(([value]) => value === '126');
+            const [, unitX, unitY, unitWidth, unitSize] = labels.find(([value]) => value === 'km/h');
             const [, , rangeY] = labels.find(([value]) => value === '418 km');
-            assert.ok(rangeY - speedY >= 26);
+            assert.equal(speedX, 480);
+            assert.equal(unitX, speedX);
+            assert.ok(unitY > speedY && unitSize < speedSize);
+            assert.equal(rangeY, 259);
+            assert.ok(rangeY - unitY >= 26);
             if (speedPosition === 'lower') {
-                const [, unitX, unitY, unitWidth] = labels.find(([value]) => value === 'km/h');
                 assert.ok(speedY >= 205);
-                assert.equal(unitY, speedY);
-                assert.ok(Math.hypot(speedX - speedWidth / 2 - 480, speedY - 168) < 63);
-                assert.ok(Math.hypot(unitX + unitWidth / 2 - 480, unitY - 168) < 63);
+                assert.ok(Math.hypot(speedWidth / 2, speedY - 168) < 63);
+                assert.ok(Math.hypot(unitWidth / 2, unitY - 168) < 63);
             } else {
                 assert.equal(speedY, 178);
             }
@@ -130,7 +143,7 @@ test('Five Dial palettes change the actual face and lower speed stays separate f
     assert.equal(colours.size, Object.keys(PALETTES).length);
 });
 
-test('Silver Trio draws demo, live and missing readings distinctly', () => {
+test('Silver Trio draws its default and customized side dials independently', () => {
     const canvas = new Canvas(960, 320);
     const labels = [];
     const drawText = canvas.text.bind(canvas);
@@ -152,6 +165,16 @@ test('Silver Trio draws demo, live and missing readings distinctly', () => {
     panel(canvas, 'silver', {}, {}, {});
     assert.ok(labels.includes('--') && labels.includes('--:--'));
     assert.equal(labels.includes('P'), false);
+    labels.length = 0;
+    const slots = { leftInner: 'tyres', rightInner: 'waze', fallback: 'temps' };
+    const customData = Object.assign({}, DEMO, data);
+    panel(canvas, 'silver', slots, customData, {});
+    for (const label of ['bar', 'OIL', 'COOLANT', 'KM/H']) assert.ok(labels.includes(label));
+    for (const label of ['810', 'RPM', '307', 'KM RANGE']) assert.ok(labels.includes(label));
+    labels.length = 0;
+    panel(canvas, 'silver', slots, customData, { mapSlot: 'rightInner' });
+    assert.ok(labels.includes('bar') && !labels.includes('COOLANT'));
+    for (const label of ['810', 'RPM', '307', 'KM RANGE']) assert.ok(labels.includes(label));
 });
 
 test('all custom instruments use the bundled Hanken Grotesk weights', () => {
@@ -200,6 +223,10 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
         get: (key) => values.get(key),
         item: (key) => spec.settings.find((item) => item.key === key),
         set(key, value) { values.set(key, value); listeners.forEach((fn) => fn()); },
+        cycle(key) {
+            const options = this.item(key).options.map(([value]) => value);
+            this.set(key, options[(options.indexOf(this.get(key)) + 1) % options.length]);
+        },
         onChange(fn) { listeners.push(fn); },
     };
     const bgContext = {
@@ -256,6 +283,12 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
             canvas: (width, height) => new Recorder(width, height),
         });
         assert.ok(frame.targets.some((target) => target.key === 'theme:vdoRetro'));
+        frame.targets.find((target) => target.key === 'theme:silver').run();
+        assert.equal(background.choices.leftInner, 'rpm');
+        assert.equal(background.choices.rightInner, 'fuelRange');
+        frame.targets.find((target) => target.key === 'slot:rightInner').run();
+        assert.equal(background.choices.rightInner, 'media');
+        frame.targets.find((target) => target.key === 'theme:vdoRetro').run();
         onVisible('MAIN', false);
         assert.equal(renderer.connected, true);
         click.get('BTN_RESTORE')();

@@ -7,8 +7,8 @@ const FONTS = {
 };
 const TEXT_SIZE_RATIO = 0.9;
 
-function instrumentType(canvas, x, y, scale, ink) {
-    const textScale = scale * TEXT_SIZE_RATIO;
+function instrumentType(canvas, x, y, scale, ink, sizeRatio = 1) {
+    const textScale = scale * TEXT_SIZE_RATIO * sizeRatio;
     const measure = (value, size, weight = 'regular') => canvas.textWidth(value, size * textScale, {
         literal: true, font: FONTS[weight],
     }) / scale;
@@ -21,7 +21,8 @@ function instrumentType(canvas, x, y, scale, ink) {
         measure,
         fitBold(value, size, maxWidth) {
             const width = measure(value, size, 'bold');
-            return width > maxWidth ? size * maxWidth / width : size;
+            const limit = maxWidth * sizeRatio;
+            return width > limit ? size * limit / width : size;
         },
     };
 }
