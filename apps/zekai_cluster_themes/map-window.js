@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { PANEL_WIDTH, PANEL_HEIGHT, panelLayout } = require('./panel-layout');
 
 const STATUS_AGE_MS = 2500;
 const REFRESH_MS = 750;
@@ -15,16 +16,20 @@ class MapWindow {
         this.now = options.now || Date.now;
         this.file = path.join(this.dir, 'map_window.txt');
         this.fd = null;
+        this.leaseKey = null;
         this.nextPoll = 0;
         this.active = null;
         this.warned = false;
     }
 
-    update(choices) {
+    update(choices, theme) {
         const side = choices.mapMode === 'full'
             ? 'fullMap'
             : Object.keys(MAP_SLOT).find((slot) => choices[slot] === 'waze');
         if (!side) { this.release(); return null; }
+        const rect = rectangle(side, theme);
+        const leaseKey = [rect.x, rect.y, rect.w, rect.h].join(' ');
+        if (this.fd !== null && this.leaseKey !== leaseKey) this.release();
         const now = this.now();
         if (now < this.nextPoll) return this.active;
         this.nextPoll = now + REFRESH_MS;
@@ -37,7 +42,7 @@ class MapWindow {
             const changingTarget = this.fd !== null && state.target === 'panel' && state.state === 'starting';
             if ((state.state !== 'showing' && !changingTarget) || state.cluster === 0 || state.paused) return this.release();
             if (this.fd === null && state.target !== 'map') return null;
-            if (this.fd === null) this.claim(side);
+            if (this.fd === null) this.claim(leaseKey);
             if (!this.owns()) { this.release(); return null; }
             const stamp = new Date(now);
             fs.futimesSync(this.fd, stamp, stamp);
@@ -52,7 +57,7 @@ class MapWindow {
         return this.active;
     }
 
-    claim(side) {
+    claim(leaseKey) {
         try {
             fs.mkdirSync(this.dir, 0o1777);
             fs.chmodSync(this.dir, 0o1777);
@@ -61,8 +66,8 @@ class MapWindow {
         }
         if (!fs.lstatSync(this.dir).isDirectory()) throw new Error('Waze handoff directory is unavailable');
         this.fd = fs.openSync(this.file, 'wx', 0o644);
-        const rect = rectangle(side);
-        fs.writeFileSync(this.fd, 'panel ' + [rect.x, rect.y, rect.w, rect.h].join(' ') + '\n');
+        fs.writeFileSync(this.fd, 'panel ' + leaseKey + '\n');
+        this.leaseKey = leaseKey;
     }
 
     owns() {
@@ -80,15 +85,18 @@ class MapWindow {
         try { if (this.owns()) fs.unlinkSync(this.file); } catch (error) { this.log.warn(error.message); }
         try { fs.closeSync(this.fd); } catch (error) { this.log.warn(error.message); }
         this.fd = null;
+        this.leaseKey = null;
+        this.nextPoll = 0;
         return null;
     }
 }
 
-function rectangle(side) {
-    // The overlay uses a half-resolution texture; the Waze window uses panel pixels.
-    if (side === 'fullMap') return { x: 0, y: 0, w: 1920, h: 720 };
-    // Keep the Waze circle aligned with the theme after it is centered in the 720px panel.
-    return { x: MAP_SLOT[side] * 2 - 120, y: 315, w: 240, h: 106 };
+function rectangle(side, theme) {
+    if (side === 'fullMap') return { x: 0, y: 0, w: PANEL_WIDTH, h: PANEL_HEIGHT };
+    const layout = panelLayout(theme);
+    const x = Math.round(layout.x + (MAP_SLOT[side] - 60) * layout.scale);
+    const y = Math.round(layout.y + 137.5 * layout.scale);
+    return { x, y, w: Math.round(120 * layout.scale), h: Math.round(53 * layout.scale) };
 }
 
 module.exports = { MapWindow, rectangle };

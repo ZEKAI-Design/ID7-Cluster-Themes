@@ -27,7 +27,12 @@ class FakeRender extends EventEmitter {
     connect() { this.connected = true; }
     close() { this.connected = false; }
     image(args) { this.args = args; return 1; }
-    pixels() { this.frames++; }
+    pixels(ref, rects, pixels) {
+        this.frames++;
+        this.rects = rects;
+        this.bytes = pixels.length;
+        return true;
+    }
 }
 
 test('Waze window is leased only while the map is live and respects other providers', () => {
@@ -226,11 +231,19 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
         renderer.emit('ready');
         assert.equal(renderer.args.h, 720);
         assert.equal(renderer.args.w, 1920);
+        assert.equal(renderer.args.iw, renderer.args.w);
+        assert.equal(renderer.args.ih, renderer.args.h);
+        assert.equal(renderer.args.sampling, 'nearest');
         assert.equal(renderer.frames, 1);
+        assert.equal(renderer.rects, null);
+        assert.equal(renderer.bytes, 1920 * 720 * 4);
         handlers.get('de.bmw.infotainment.vehicle.Vehicle2').statusCarSpeed2({ speedVehicleCentreOfGravity: 68 * 64 });
         handlers.get('de.bmw.infrastructure.VehicleInformation').statusGearboxDrive({ statusActualStageDrive: 'D' });
         interval();
         assert.equal(renderer.frames, 2);
+        assert.ok(renderer.rects.length > 0 && renderer.rects.length <= 15);
+        assert.equal(renderer.bytes, renderer.rects.reduce((bytes, rect) => bytes + rect.w * rect.h * 4, 0));
+        assert.ok(renderer.bytes < 1920 * 720 * 4);
         impl.start({
             settings, background,
             ui: {

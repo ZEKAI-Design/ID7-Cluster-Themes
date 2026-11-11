@@ -1,13 +1,12 @@
 'use strict';
 
 const { EventEmitter } = require('events');
-const { Canvas } = require('./kit/canvas');
 const { ClusterRender } = require('./cluster_render_client');
 const { Car } = require('./car');
-const { MapWindow, rectangle } = require('./map-window');
-const { panel, SLOTS } = require('./dials');
-const { wazeFullPanel } = require('./waze-full-screen');
-const { vdoPanel } = require('./vdo-retro');
+const { MapWindow } = require('./map-window');
+const { SLOTS } = require('./dials');
+const { PANEL_WIDTH, PANEL_HEIGHT } = require('./panel-layout');
+const { renderPanelFrame, sendPanelFrame } = require('./panel-frame');
 
 function localTime() {
     return new Date().toTimeString().slice(0, 5);
@@ -24,6 +23,7 @@ class ClusterService extends EventEmitter {
         this.connected = false;
         this.timer = null;
         this.lastFrame = null;
+        this.lastPixels = null;
         this.message = 'Starting cluster theme service';
         this.theme = 'stock';
         this.choices = {};
@@ -84,7 +84,7 @@ class ClusterService extends EventEmitter {
         const current = () => this.client === client;
         client.on('ready', () => {
             if (!current()) return;
-            if (client.backend !== 'id7' || !String(client.targets).split(',').includes('panel:1920x720')) {
+            if (client.backend !== 'id7' || !String(client.targets).split(',').includes('panel:' + PANEL_WIDTH + 'x' + PANEL_HEIGHT)) {
                 this.report('This renderer does not expose the full ID7 panel');
                 this.stop();
                 return;
@@ -92,11 +92,12 @@ class ClusterService extends EventEmitter {
             this.connected = true;
             if (!this.ref) {
                 this.ref = client.image({
-                    target: 'panel', klass: 'overlay', x: 0, y: 0, w: 1920, h: 720,
-                    iw: 960, ih: 360, sampling: 'bilinear', contend: false, fps: 2,
+                    target: 'panel', klass: 'overlay', x: 0, y: 0, w: PANEL_WIDTH, h: PANEL_HEIGHT,
+                    iw: PANEL_WIDTH, ih: PANEL_HEIGHT, sampling: 'nearest', contend: false, fps: 2,
                 });
             }
             this.lastFrame = null;
+            this.lastPixels = null;
             this.draw();
         });
         client.on('disconnected', () => {
@@ -122,30 +123,13 @@ class ClusterService extends EventEmitter {
         try {
             const data = this.car.snapshot();
             data.clock = localTime();
-            data.mapSlot = this.map.update(this.choices);
+            data.mapSlot = this.map.update(this.choices, this.theme);
             const signature = JSON.stringify([this.theme, this.choices, data]);
             if (signature === this.lastFrame) return;
 
-            const cv = new Canvas(960, 360);
-            const liveFullMap = this.theme === 'wazeFull' && data.mapSlot === 'fullMap';
-            if (liveFullMap) cv.d.fill(0);
-            else cv.fillRect(0, 0, 960, 360, this.theme === 'vdoRetro' ? '#070809' : '#030507');
-            if (this.theme === 'wazeFull') {
-                wazeFullPanel(cv, data, { active: liveFullMap, w: 960, h: 360, designH: 360 });
-            } else if (this.theme === 'vdoRetro') {
-                vdoPanel(cv, data, { y: 20 });
-            } else {
-                panel(cv, this.theme, this.choices, data, { y: 20, clock: data.clock, mapSlot: data.mapSlot });
-            }
-            if (data.mapSlot && data.mapSlot !== 'fullMap') {
-                const rect = rectangle(data.mapSlot);
-                const left = Math.floor(rect.x / 2);
-                const right = Math.ceil((rect.x + rect.w) / 2);
-                for (let y = Math.floor(rect.y / 2); y < Math.ceil((rect.y + rect.h) / 2); y++) {
-                    cv.d.fill(0, (y * cv.w + left) * 4, (y * cv.w + right) * 4);
-                }
-            }
-            this.client.pixels(this.ref, null, Buffer.from(cv.d.buffer));
+            const frame = renderPanelFrame(this.theme, this.choices, data);
+            if (!sendPanelFrame(this.client, this.ref, frame, this.lastPixels)) return;
+            this.lastPixels = frame;
             this.lastFrame = signature;
         } catch (error) {
             this.log.warn('cluster theme draw: ' + (error && error.message || error));
@@ -162,6 +146,7 @@ class ClusterService extends EventEmitter {
         this.ref = null;
         this.connected = false;
         this.lastFrame = null;
+        this.lastPixels = null;
         this.map.release();
         if (client) client.close();
         this.report('BMW original active');

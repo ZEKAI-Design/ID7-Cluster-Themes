@@ -60,7 +60,7 @@ function panel(canvas, theme, selections, data, opts) {
     const oy = opts.y || 0;
     const x = (v) => ox + v * scale;
     const y = (v) => oy + v * scale;
-    canvas.fillRect(x(0), y(0), 960 * scale, 320 * scale, '#030507');
+    if (opts.background !== false) canvas.fillRect(x(0), y(0), 960 * scale, 320 * scale, '#030507');
     if (theme === 'silver') return silverDials(canvas, data, opts);
     const arc = (cx, cy, r0, r1, a0, a1, color, style) =>
         canvas.arc(x(cx), y(cy), r0 * scale, r1 * scale, a0, a1, color, style);
