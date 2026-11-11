@@ -2,44 +2,21 @@
 
 const mgu = require('./kit/mgu');
 const { Canvas } = require('./kit/canvas');
-const { ClusterRender } = require('./cluster_render_client');
-const { Car } = require('./car');
-const { Preview } = require('./preview');
-const { MapWindow, rectangle } = require('./map-window');
+const { ClusterService } = require('./cluster-service');
 const { panel, SLOTS, NAMES, DEMO, PALETTES } = require('./dials');
+const { wazeFullPanel } = require('./waze-full-screen');
+const { vdoPanel } = require('./vdo-retro');
 
-const THEMES = [['stock', 'BMW original'], ['five', 'Five Dial'], ['silver', 'Silver Trio'], ['digital', 'Digital']];
+const THEMES = [['stock', 'BMW original'], ['five', 'Five Dial'], ['silver', 'Silver Trio'], ['digital', 'Digital'], ['wazeFull', 'Waze Full Map'], ['vdoRetro', 'VDO Retro 2000']];
 const SLOT_LABELS = ['Left outer', 'Left inner', 'Right inner', 'Right outer'];
 const SILVER_READOUTS = [['Left dial', 'Engine RPM'], ['Centre dial', 'Vehicle speed'], ['Right dial', 'Fuel & range']];
 
-function localTime() {
-    return new Date().toTimeString().slice(0, 5);
-}
-
 mgu.run({
+    background(context) {
+        return new ClusterService(context);
+    },
     start(ctx) {
-        const { ui, settings, log } = ctx;
-        const canRun = () => ui.isVisible('MAIN') && ui.hasFocus('MAIN') && car.parked();
-        const car = new Car(Date.now, () => preview.check());
-        const map = new MapWindow(log);
-        const preview = new Preview({
-            now: Date.now, canRun, log, map,
-            snapshot: () => Object.assign(car.snapshot(), { clock: localTime() }),
-            createClient: () => new ClusterRender(ctx.spec.id),
-            paint(theme, choices, data) {
-                const cv = new Canvas(960, 320);
-                panel(cv, theme, choices, data, { clock: data.clock, mapSlot: data.mapSlot });
-                if (data.mapSlot) {
-                    const rect = rectangle(data.mapSlot);
-                    const left = Math.floor(rect.x / 2);
-                    const right = Math.ceil((rect.x + rect.w) / 2);
-                    for (let y = Math.floor(rect.y / 2); y < Math.ceil((rect.y + rect.h) / 2); y++) {
-                        cv.d.fill(0, (y * cv.w + left) * 4, (y * cv.w + right) * 4);
-                    }
-                }
-                return Buffer.from(cv.d.buffer);
-            },
-        });
+        const { ui, settings, background } = ctx;
 
         function choice(key) {
             const item = settings.item(key);
@@ -48,7 +25,8 @@ mgu.run({
         }
 
         function selections(theme) {
-            if (theme === 'stock' || theme === 'silver') return {};
+            if (theme === 'stock' || theme === 'silver' || theme === 'vdoRetro') return {};
+            if (theme === 'wazeFull') return { mapMode: 'full' };
             const slots = {};
             for (const key of SLOTS.concat('fallback')) slots[key] = choice(theme + '_' + key);
             if (theme === 'five') {
@@ -58,17 +36,15 @@ mgu.run({
             return slots;
         }
 
-        function apply() {
-            const theme = choice('instrumentTheme');
-            preview.show(theme, selections(theme));
-        }
+        function apply() { settings.set('clusterOverlayEnabled', true); }
+        function restore() { settings.set('clusterOverlayEnabled', false); }
 
         const loop = ctx.loop('MAIN', 3, render);
         let last = '';
         function render() {
             const theme = choice('instrumentTheme');
             const slots = selections(theme);
-            const status = preview.status;
+            const status = background ? background.status() : 'Background cluster service unavailable';
             const signature = JSON.stringify([theme, slots, status]);
             if (signature === last) return;
             last = signature;
@@ -78,10 +54,10 @@ mgu.run({
             cv.roundRect(16, 18, 304, 478, 16, '#161f2e');
             label('THEMES', 40, 61, 24, '#a9ccf1');
             THEMES.forEach(([id, title], i) => {
-                const y = 83 + i * 53;
-                cv.roundRect(38, y, 260, 45, 9, id === theme ? '#2a4562' : '#202b3a');
-                label(title, 57, y + 30, 23);
-                cv.target(38, y, 260, 45, () => settings.set('instrumentTheme', id), 'theme:' + id, 9);
+                const y = 81 + i * 35;
+                cv.roundRect(38, y, 260, 31, 7, id === theme ? '#2a4562' : '#202b3a');
+                label(title, 57, y + 22, 18);
+                cv.target(38, y, 260, 31, () => settings.set('instrumentTheme', id), 'theme:' + id, 9);
             });
             if (theme === 'five') {
                 const appearance = [
@@ -89,24 +65,37 @@ mgu.run({
                     ['five_speedPosition', 'DIGITAL SPEED', slots.speedPosition],
                 ];
                 appearance.forEach(([key, title, value], i) => {
-                    const y = 301 + i * 62;
+                    const y = 306 + i * 58;
                     const labelText = settings.item(key).options.find(([id]) => id === value)[1];
-                    cv.roundRect(38, y, 260, 55, 9, '#202b3a');
+                    cv.roundRect(38, y, 260, 52, 9, '#202b3a');
                     label(title, 52, y + 19, 14, '#b4c2d6');
                     label(labelText, 52, y + 44, 23);
                     if (key === 'five_faceColour') cv.circle(274, y + 28, 9, PALETTES[value].ring);
-                    cv.target(38, y, 260, 55, () => settings.cycle(key), key, 9);
+                    cv.target(38, y, 260, 52, () => settings.cycle(key), key, 9);
                 });
             }
             label('G05 / iDrive 7', 40, 445, 24);
-            label('12-second parked preview', 40, 473, 19, '#adbcd2');
+            label('Auto-start • persistent display', 40, 473, 17, '#adbcd2');
 
             cv.roundRect(338, 18, 1245, 478, 16, '#161f2e');
             label('Instrument preview', 362, 58, 26);
             label('SIMULATED DATA', 1351, 58, 18, '#a9ccf1');
             cv.roundRect(359, 77, 1202, 298, 11, '#030507');
-            panel(cv, theme, slots, DEMO, { demo: true, x: 514, y: 78, scale: 0.92, clock: '10:53' });
-            const readouts = theme === 'silver' ? SILVER_READOUTS
+            if (theme === 'wazeFull') {
+                wazeFullPanel(cv, Object.assign({}, DEMO, { speed: 84, rpm: 2100, coolant: 91, oil: 98, stage: 'D', clock: '10:53' }), {
+                    demo: true, x: 359, y: 77, w: 1202, h: 298,
+                });
+            } else if (theme === 'vdoRetro') {
+                vdoPanel(cv, Object.assign({}, DEMO, {
+                    speed: 68, rpm: 1850, coolant: 91, oil: 98, ambient: 15,
+                    economyMpgUs: 29.4, odometerKm: 152112, tripKm: 6.8, fuelLitres: 41,
+                }), { demo: true, x: 514, y: 78, scale: 0.92 });
+            } else {
+                panel(cv, theme, slots, DEMO, { demo: true, x: 514, y: 78, scale: 0.92, clock: '10:53' });
+            }
+            const readouts = theme === 'vdoRetro' ? [['Speed', 'MPH + km/h dual scale'], ['Engine', 'RPM / fuel / coolant'], ['Trip', 'Odometer / trip / AVG MPG']]
+                : theme === 'wazeFull' ? [['Map', 'Full instrument display'], ['Top', 'Speed + time + gear'], ['Bottom', 'Range + RPM + temperatures']]
+                : theme === 'silver' ? SILVER_READOUTS
                 : SLOTS.map((key, i) => [SLOT_LABELS[i], NAMES[slots[key]] || 'BMW original', key]);
             const column = Math.floor(1212 / readouts.length);
             readouts.forEach(([title, value, key], i) => {
@@ -114,7 +103,7 @@ mgu.run({
                 cv.roundRect(x, 387, column - 11, 62, 9, '#223045');
                 label(title, x + 13, 407, 17, '#b4c2d6');
                 label(value, x + 13, 435, 23);
-                if (theme !== 'stock' && key) {
+                if (!['stock', 'wazeFull', 'vdoRetro'].includes(theme) && key) {
                     cv.target(x, 387, column - 11, 62, () => settings.cycle(theme + '_' + key), 'slot:' + key, 9);
                 }
             });
@@ -127,20 +116,15 @@ mgu.run({
             loop.kick();
         }
 
-        preview.on('status', refresh);
-        settings.onChange(() => { preview.stop(); refresh(); });
+        if (background && background.on) background.on('status', refresh);
+        settings.onChange(refresh);
         ctx.onLayout(refresh);
         ui.onVisible((name, visible) => {
             if (name !== 'MAIN') return;
-            if (!visible) preview.stop();
             refresh();
         });
-        ui.onFocus((name, focused) => { if (name === 'MAIN' && !focused) preview.stop(); });
-        ui.onClick('BTN_SETTINGS', () => preview.stop());
         ui.onClick('BTN_APPLY', apply);
-        ui.onClick('BTN_RESTORE', () => preview.stop());
-        process.on('exit', () => preview.stop());
-        car.watch(ctx);
+        ui.onClick('BTN_RESTORE', restore);
         refresh();
     },
 });

@@ -2,9 +2,10 @@
   "id": "zekai_cluster_themes",
   "title": "ID7 Cluster Themes",
   "vendor": "ZEKAI Design",
-  "version": "0.7.2",
+  "version": "0.8.0",
   "loggingId": "ZCT1",
-  "description": "Five Dial, Silver Trio and Digital themes with a 12-second parked instrument preview. Optional Waze map with a compatible renderer; live BMW media unavailable.",
+  "description": "Persistent, auto-starting instrument themes for BMW iDrive 7. Choose a theme in the app; select BMW original to turn the overlay off.",
+  "autostart": true,
   "iconGlyph": "gauge",
   "mguHmi": [
     "ID7"
@@ -21,7 +22,7 @@
         ],
         [
           "BTN_APPLY",
-          "Preview on cluster"
+          "Enable selected theme"
         ],
         [
           "BTN_RESTORE",
@@ -49,7 +50,9 @@
     },
     "de.bmw.infotainment.KombiIF": {
       "statusRangeTankStatus": "rs",
-      "_optional": "Fuel range"
+      "statusBordcomputerAverage": "rs",
+      "statusBordcomputerTravelData": "rs",
+      "_optional": "Fuel range, odometer and trip economy"
     },
     "de.bmw.infotainment.vehicle.Vehicle": {
       "statusNewCurrentUnitsStatusExt": "rs",
@@ -65,6 +68,12 @@
     }
   },
   "settings": [
+    {
+      "key": "clusterOverlayEnabled",
+      "label": "Start selected theme at boot",
+      "type": "bool",
+      "default": true
+    },
     {
       "key": "instrumentTheme",
       "label": "Instrument theme",
@@ -86,6 +95,14 @@
         [
           "digital",
           "Digital"
+        ],
+        [
+          "wazeFull",
+          "Waze Full Map"
+        ],
+        [
+          "vdoRetro",
+          "VDO Retro 2000"
         ]
       ]
     },

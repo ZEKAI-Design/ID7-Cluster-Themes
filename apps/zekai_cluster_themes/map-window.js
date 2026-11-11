@@ -21,7 +21,9 @@ class MapWindow {
     }
 
     update(choices) {
-        const side = Object.keys(MAP_SLOT).find((slot) => choices[slot] === 'waze');
+        const side = choices.mapMode === 'full'
+            ? 'fullMap'
+            : Object.keys(MAP_SLOT).find((slot) => choices[slot] === 'waze');
         if (!side) { this.release(); return null; }
         const now = this.now();
         if (now < this.nextPoll) return this.active;
@@ -84,7 +86,9 @@ class MapWindow {
 
 function rectangle(side) {
     // The overlay uses a half-resolution texture; the Waze window uses panel pixels.
-    return { x: MAP_SLOT[side] * 2 - 120, y: 275, w: 240, h: 106 };
+    if (side === 'fullMap') return { x: 0, y: 0, w: 1920, h: 720 };
+    // Keep the Waze circle aligned with the theme after it is centered in the 720px panel.
+    return { x: MAP_SLOT[side] * 2 - 120, y: 315, w: 240, h: 106 };
 }
 
 module.exports = { MapWindow, rectangle };

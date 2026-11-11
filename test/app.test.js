@@ -7,8 +7,6 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const app = '../apps/zekai_cluster_themes/';
-const { Car, SAFETY_MAX_AGE_MS } = require(app + 'car');
-const { Preview, MAX_RUN_MS } = require(app + 'preview');
 const { MapWindow, rectangle } = require(app + 'map-window');
 const { panel, DEMO, SLOTS, PALETTES } = require(app + 'dials');
 const { TANK_LITRES } = require(app + 'silver-dials');
@@ -17,27 +15,6 @@ const { Canvas } = require('../kit/runtime/canvas');
 const { get: getFont } = require('../kit/runtime/fonts');
 const { Recorder, play } = require('../kit/runtime/record');
 const spec = require(app + 'app.json');
-
-test('only fresh, unambiguous P and zero speed permit preview', () => {
-    let now = 100;
-    const car = new Car(() => now);
-    assert.equal(car.parked(), false);
-    car.put('speed', 0);
-    assert.equal(car.parked(), false);
-    car.put('stage', 'P');
-    assert.equal(car.parked(), true);
-    car.put('selection', 'other');
-    assert.equal(car.parked(), false);
-    car.put('selection', 'P');
-    car.put('speed', 0.015625);
-    assert.equal(car.parked(), false);
-    car.put('speed', 0);
-    assert.equal(car.parked(), true);
-    now += SAFETY_MAX_AGE_MS + 1;
-    assert.equal(car.parked(), false);
-    car.put('speed', 0);
-    assert.equal(car.parked(), false);
-});
 
 class FakeRender extends EventEmitter {
     constructor() {
@@ -52,44 +29,6 @@ class FakeRender extends EventEmitter {
     image(args) { this.args = args; return 1; }
     pixels() { this.frames++; }
 }
-
-test('renderer session requires parking, stays clear of the bottom, and times out', () => {
-    let now = 100;
-    let parked = false;
-    let current = null;
-    const preview = new Preview({
-        now: () => now, canRun: () => parked, createClient: () => { current = new FakeRender(); return current; },
-        paint: () => Buffer.alloc(4), snapshot: () => ({ speed: 0 }), log: console,
-    });
-    try {
-        preview.show('five', {});
-        assert.equal(current, null);
-        parked = true;
-        preview.show('five', {});
-        assert.equal(current.frames, 0);
-        current.emit('ready');
-        assert.equal(current.frames, 1);
-        assert.equal(current.args.h, 640);
-        parked = false;
-        preview.check();
-        assert.equal(current.connected, false);
-
-        parked = true;
-        preview.show('digital', {});
-        current.emit('ready');
-        current.emit('disconnected');
-        assert.equal(preview.session, null);
-
-        preview.show('five', {});
-        current.emit('ready');
-        now += MAX_RUN_MS;
-        preview.tick();
-        assert.equal(current.connected, false);
-        assert.equal(preview.session, null);
-    } finally {
-        preview.stop();
-    }
-});
 
 test('Waze window is leased only while the map is live and respects other providers', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cluster-test-'));
@@ -236,96 +175,89 @@ test('all custom instruments use the bundled Hanken Grotesk weights', () => {
     assert.equal(new Set('0123456789'.split('').map((digit) => digits[digit.charCodeAt(0)][6])).size, 1);
 });
 
-test('packaged HMI entry renders settings, applies a parked preview and restores on page exit', async () => {
+test('packaged theme starts without the UI, fills the panel and remembers manual shutdown', () => {
     const vm = require('node:vm');
     const artifact = path.resolve(__dirname, '../dist/zekai_cluster_themes/source/javascript');
     const entry = path.join(artifact, 'app.js');
     const packagedRequire = require('node:module').createRequire(entry);
-    const source = fs.readFileSync(entry, 'utf8');
+    const spec = packagedRequire('./kit/app-spec.json');
+    assert.equal(packagedRequire('../package.json').mguAppStartType, 'autostart');
     const handlers = new Map();
     const click = new Map();
     const values = new Map(spec.settings.map((item) => [item.key, item.default]));
+    values.set('instrumentTheme', 'vdoRetro');
+    const listeners = [];
     const renderers = [];
-    let visible = true;
-    let frame = null;
-    let afterSettings;
-    let onVisible;
-    const ctx = {
-        log: { info() {}, warn() {} }, spec,
-        ui: {
-            isVisible: () => visible, hasFocus: () => true,
-            onClick: (key, callback) => click.set(key, callback),
-            onVisible: (callback) => { onVisible = callback; },
-            onFocus() {},
-            image: (name, record) => { assert.equal(name, 'MAIN_GFX'); frame = record; },
-        },
-        settings: {
-            get: (key) => values.get(key),
-            item: (key) => spec.settings.find((item) => item.key === key),
-            set(key, value) { values.set(key, value); afterSettings(); },
-            cycle(key) {
-                const options = this.item(key).options.map(([id]) => id);
-                this.set(key, options[(options.indexOf(this.get(key)) + 1) % options.length]);
-            },
-            onChange: (callback) => { afterSettings = callback; },
-        },
-        signals: { watch: async (name, instance, callbacks) => { handlers.set(name, callbacks); } },
-        loop: (page, fps, render) => ({ kick: render }),
-        onLayout() {},
-        canvas: (width, height) => new Recorder(width, height),
+    const process = new EventEmitter();
+    const app = new EventEmitter();
+    let frame, onVisible, interval, impl, background;
+    const settings = {
+        get: (key) => values.get(key),
+        item: (key) => spec.settings.find((item) => item.key === key),
+        set(key, value) { values.set(key, value); listeners.forEach((fn) => fn()); },
+        onChange(fn) { listeners.push(fn); },
     };
-    const context = {
-        Buffer, process: new EventEmitter(),
-        require: (name) => {
-            if (name === './kit/mgu') return { run: (app) => app.start(ctx) };
-            if (name === './cluster_render_client') return { ClusterRender: class extends FakeRender {
-                constructor() { super(); renderers.push(this); }
-            } };
+    const bgContext = {
+        spec, app, settings, log: { warn() {} },
+        signals: { watch: async (name, instance, fields) => { handlers.set(name, fields); } },
+    };
+    const renderStub = { ClusterRender: class extends FakeRender {
+        constructor() { super(); renderers.push(this); }
+    } };
+    const serviceModule = { exports: {} };
+    const servicePath = path.join(artifact, 'cluster-service.js');
+    vm.runInNewContext(fs.readFileSync(servicePath, 'utf8'), {
+        module: serviceModule, Buffer, process,
+        setInterval(fn) { interval = fn; return fn; },
+        clearInterval(fn) { if (interval === fn) interval = null; },
+        require(name) { return name === './cluster_render_client' ? renderStub : packagedRequire(name); },
+    }, { filename: servicePath });
+    vm.runInNewContext(fs.readFileSync(entry, 'utf8'), {
+        require(name) {
+            if (name === './kit/mgu') return { run(value) { impl = value; } };
+            if (name === './cluster-service') return serviceModule.exports;
             return packagedRequire(name);
         },
-    };
-    vm.runInNewContext(source, context, { filename: entry });
+    }, { filename: entry });
     try {
-        assert.equal(frame.targets.length, 10);
-        frame.targets.find((target) => target.key === 'five_faceColour').run();
-        frame.targets.find((target) => target.key === 'five_speedPosition').run();
-        assert.equal(values.get('five_faceColour'), 'blue');
-        assert.equal(values.get('five_speedPosition'), 'lower');
-        assert.ok(click.has('BTN_SETTINGS'));
-        click.get('BTN_APPLY')();
-        assert.equal(renderers.length, 0);
-        handlers.get('de.bmw.infotainment.vehicle.Vehicle2').statusCarSpeed2({ speedVehicleCentreOfGravity: 0 });
-        handlers.get('de.bmw.infrastructure.VehicleInformation').statusGearboxDrive({ statusActualStageDrive: 'P' });
-        click.get('BTN_APPLY')();
-        assert.equal(renderers.length, 1);
+        background = impl.background(bgContext);
+        assert.equal(background.theme, 'vdoRetro');
         const renderer = renderers[0];
         renderer.emit('ready');
+        assert.equal(renderer.args.h, 720);
+        assert.equal(renderer.args.w, 1920);
         assert.equal(renderer.frames, 1);
-        assert.equal(renderer.connected, true);
-        visible = false;
+        handlers.get('de.bmw.infotainment.vehicle.Vehicle2').statusCarSpeed2({ speedVehicleCentreOfGravity: 68 * 64 });
+        handlers.get('de.bmw.infrastructure.VehicleInformation').statusGearboxDrive({ statusActualStageDrive: 'D' });
+        interval();
+        assert.equal(renderer.frames, 2);
+        impl.start({
+            settings, background,
+            ui: {
+                onClick: (key, fn) => click.set(key, fn),
+                onVisible: (fn) => { onVisible = fn; },
+                image: (name, record) => { assert.equal(name, 'MAIN_GFX'); frame = record; },
+            },
+            loop: (page, fps, render) => ({ kick: render }),
+            onLayout() {},
+            canvas: (width, height) => new Recorder(width, height),
+        });
+        assert.ok(frame.targets.some((target) => target.key === 'theme:vdoRetro'));
         onVisible('MAIN', false);
-        assert.equal(renderer.connected, false);
-
-        visible = true;
-        onVisible('MAIN', true);
-        frame.targets.find((target) => target.key === 'theme:digital').run();
-        assert.equal(values.get('instrumentTheme'), 'digital');
-        assert.equal(frame.targets.filter((target) => target.key.startsWith('slot:')).length, 4);
-        assert.equal(frame.targets.some((target) => target.key === 'five_speedPosition'), false);
-        frame.targets.find((target) => target.key === 'theme:five').run();
-        assert.equal(values.get('five_speedPosition'), 'lower');
-
-        frame.targets.find((target) => target.key === 'theme:silver').run();
-        assert.equal(values.get('instrumentTheme'), 'silver');
-        assert.equal(frame.targets.some((target) => target.key.startsWith('slot:')), false);
-        handlers.get('de.bmw.infotainment.KombiIF').statusRangeTankStatus({ range: 307, fluidLevelFuelTank: 40 });
-        click.get('BTN_APPLY')();
-        assert.equal(renderers.length, 2);
-        renderers[1].emit('ready');
-        assert.equal(renderers[1].frames, 1);
+        assert.equal(renderer.connected, true);
         click.get('BTN_RESTORE')();
-        assert.equal(renderers[1].connected, false);
+        assert.equal(values.get('clusterOverlayEnabled'), false);
+        assert.equal(renderer.connected, false);
+        const restarted = impl.background(bgContext);
+        assert.equal(renderers.length, 1);
+        assert.equal(restarted.status(), 'BMW original active');
+        click.get('BTN_APPLY')();
+        assert.equal(values.get('clusterOverlayEnabled'), true);
+        assert.equal(restarted.theme, 'vdoRetro');
+        assert.equal(restarted.client.connected, true);
+        app.emit('shutdown');
+        assert.equal(restarted.client, null);
     } finally {
-        context.process.emit('exit');
+        process.emit('exit');
     }
 });

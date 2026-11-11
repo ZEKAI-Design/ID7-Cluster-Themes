@@ -1,25 +1,29 @@
 # ID7 Cluster Themes for BMW G05
 
-0.7.2 是 2019 BMW X5 xDrive40i（G05、iDrive 7、12.3 英寸仪表）的停车验证包。中控页用示例数据预览样式。实际仪表预览使用收到的车况数据，缺失的读数以 `--` 显示。
+0.8.0 面向 2019 BMW X5 xDrive40i（G05、iDrive 7、12.3 英寸仪表）。MGU 平台启动时会自动启动已启用的主题，主题在中控页面离开后继续显示，直到选择 **BMW original**。车机关闭时后台进程随平台停止；下次启动时按保存的开关状态和主题恢复。完整仪表渲染层为 1920×720，主题按 960×360 画布居中绘制，圆表保持圆形并覆盖屏幕高度。中控页使用示例数据；仪表使用实时车况信号，缺失读数显示 `--`。
+
+本 App 使用 `cluster-render` 在仪表上绘制全屏覆盖层，不会刷写或替换 BMW 仪表 ECU。0.8.0 尚未在行驶中完成实车验证，BMW 原厂告警层与自定义覆盖层的优先级也需在车上确认；如果原厂告警或任何关键读数被遮挡，请选择 **BMW original**。
 
 ## 车机预览
 
-- 依赖 MGU Store 和已经运行的 `cluster-render`。安装包只包含仪表主题 App。
+- 依赖 MGU Store 和 `cluster-render` 0.5.2 或更新版本。安装包只包含仪表主题 App。
 - 主题包含 **BMW original**、**Five Dial**、**Silver Trio** 和 **Digital**。**Five Dial** 与 **Digital** 可在 **Customize** 分别设置四个位置，导航和媒体只出现在内圈选项。
+- 新增 **Waze Full Map** 概念主题：实车布局为全仪表地图，顶部显示实时车速、时间和挡位，底部显示续航、转速、水温和油温。中控预览用绘制的示例地图；实车布局需要兼容全屏窗口交接的 Waze on Cluster，并且依赖它提供实时地图画面。Waze 视频流没有可供本 App 读取的转弯、ETA 或路名数据，所以这些信息不作为实时独立字段显示。
+- 新增 **VDO Retro 2000**：按参考图保留双大圆表、中央经济/指示灯/信息窗的老大众布局，电子指针显示 BMW 车速和转速，附带 MPH 与 km/h 双刻度、燃油和水温小表、油耗、总里程与行程读数。中央 MPG 小表、中段原图四组指示图标/彩色灯位及底部数字车速屏均收在参考图标出的中央区域内；LCD 显示数字车速，并移除了重复读数行。车速、转速、燃油、水温、油温、续航和总里程使用当前车况/仪表信号；中央 MPG 表显示 BMW 行车电脑的平均油耗并统一换算为 US MPG。行程距离来自 Kombi 的 `wayPassed` 字段，官方解码目录标注该字段缩放尚需车辆核对；未收到或数值无效时显示短横线。参考图中的转向、电池、水温、机油压力、远光及警告灯位置以彩色灯罩示意；当前 App 没有这些灯的实时状态信号，颜色仅用于辨认位置，不代表车辆告警状态。
 - **Silver Trio** 是劳斯莱斯风格的固定三圆布局。左侧显示转速，中央显示车速，右侧显示油量和续航。油量指针按 xDrive40i 约 83 L 油箱折算，外侧显示时间、外温和挡位。 [BMW Canada MY19 配置表](https://www.press.bmwgroup.com/canada/article/attachment/T0289548EN/432931)
-- 三套自定义主题使用 Hanken Grotesk，字形参照保时捷红盘仪表，字号较上一版缩小 10%。车速和转速刻度用较粗字重，数字采用等宽排版。实时 Waze 画面内的文字由 Waze 渲染。 挡位信号使用车机支持的订阅接口。
+- 三套自定义主题使用 Hanken Grotesk，字形参照保时捷红盘仪表，字号较上一版缩小 10%。车速和转速刻度用较粗字重，数字采用等宽排版。实时 Waze 画面内的文字由 Waze 渲染。挡位信号使用车机支持的订阅接口。
 - **Five Dial** 的 **Face colour** 有原版深蓝、石板蓝、青绿、紫红、中央红环五套配色。**Digital speed** 可选 **Centre** 或 **Lower**。低位模式把数字车速放到指针轴下方，并显示从圆心出发的转速长针。两项设置独立保存，也可从中控预览左侧的快捷卡片切换。
-- 车辆停稳挂 P 挡，选择 **Preview on cluster**。需要同时读到明确的 P 挡和零车速。一次最多 12 秒。选择 **BMW original**、离开页面、换挡、信号中断或渲染连接断开时，App 会撤下主题。启动默认显示原厂。当前车机上的告警层和恢复时序还需实车验证。
+- 在车机的 **Settings → Start selected theme at boot** 中启用自动启动，然后用 **Enable selected theme** 显示所选主题。选择 **BMW original** 会关闭覆盖层并记住此状态；再次启用即可恢复。渲染器断开后，客户端会尝试重连并恢复已选主题。
 - Waze 圆内窗口需要已经可用、支持 Cluster Layouts 窗口交接的 Waze on Cluster 版本。标准居中地图版本会显示你选的备用内容。地图流停止、断开或窗口被另一个 App 占用时也使用备用内容。
 - **Now playing (demo)** 的曲名和封面仅在中控预览中展示。当前版本未接入 BMW 原厂实时媒体，真实仪表显示媒体来源不可用。
 
 ## MGU Store 安装
 
-在 MGU Store 打开 **Settings → Add source**，输入 `ZEKAI-Design/ID7-Cluster-Themes`，选择 **Releases**，然后安装 **ID7 Cluster Themes**。需要 `cluster-render` 0.5.2 或更新版本，可从 MGU Store 的 [idrive-apps](https://github.com/robertnisipeanu/idrive-apps) 来源获取。
+在 MGU Store 打开 **Settings → Add source**，输入 `ZEKAI-Design/ID7-Cluster-Themes`，选择 **Releases**，然后安装或更新 **ID7 Cluster Themes**。需要 `cluster-render` 0.5.2 或更新版本，可从 MGU Store 的 [idrive-apps](https://github.com/robertnisipeanu/idrive-apps) 来源获取。
 
 ## USB
 
-将 USB 压缩包解压到 U 盘根目录，保留 `mgu-repo/cluster-themes/catalog.json` 和同一目录的 `.tgz`。在 MGU Store 的 USB 来源中安装 **ID7 Cluster Themes**。停车且依赖已运行时再启动仪表预览。
+将 USB 压缩包解压到 U 盘根目录，保留 `mgu-repo/cluster-themes/catalog.json` 和同一目录的 `.tgz`。在 MGU Store 的 USB 来源中安装或更新 **ID7 Cluster Themes**。安装后，默认启用自动启动和 Five Dial 主题。
 
 ## 构建与验证
 
