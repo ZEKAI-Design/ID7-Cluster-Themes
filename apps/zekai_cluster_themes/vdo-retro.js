@@ -19,7 +19,6 @@ function vdoPanel(canvas, data, opts = {}) {
     const y = (v) => oy + v * scale;
     const line = (x1, y1, x2, y2, width, colour) => canvas.line(x(x1), y(y1), x(x2), y(y2), width * scale, colour);
     const circle = (cx, cy, r, colour) => canvas.circle(x(cx), y(cy), r * scale, colour);
-    const rect = (rx, ry, w, h, colour) => canvas.fillRect(x(rx), y(ry), w * scale, h * scale, colour);
     const round = (rx, ry, w, h, r, colour) => canvas.roundRect(x(rx), y(ry), w * scale, h * scale, r * scale, colour);
     const text = (value, cx, cy, size, colour = C.ink, align = 'center', weight = 'regular', font = FONTS[weight]) =>
         canvas.text(String(value), x(cx), y(cy), size * scale, colour, { literal: true, align, font });
@@ -47,10 +46,9 @@ function vdoPanel(canvas, data, opts = {}) {
         circle(cx, cy, radius - 14, C.face);
     };
 
-    rect(0, 0, 960, 320, '#070809');
-    // Bezel-like rails preserve the compact horizontal instrument-panel silhouette.
-    round(4, 10, 952, 300, 12, '#181a1c');
-    round(9, 14, 942, 292, 10, '#25282b');
+    // Leave clearance around the bezel on the 1920×720 panel.
+    round(75, 14, 810, 298, 12, '#181a1c');
+    round(80, 18, 800, 290, 10, '#25282b');
 
     const speed = Number.isFinite(data.speed) ? data.speed : null; // BMW signal is km/h.
     const speedMph = speed === null ? null : speed / KM_PER_MILE;
@@ -66,7 +64,7 @@ function vdoPanel(canvas, data, opts = {}) {
     return canvas;
 
     function drawSpeedometer() {
-        const cx = 249, cy = 163, r = 141;
+        const cx = 228, cy = 163, r = 141;
         dialFace(cx, cy, r);
         // Outer MPH ring: 0 to 120 with a 10 mph face cadence.
         for (let value = 0; value <= 120; value += 5) {
@@ -108,7 +106,7 @@ function vdoPanel(canvas, data, opts = {}) {
     }
 
     function drawTachometer() {
-        const cx = 711, cy = 163, r = 141;
+        const cx = 732, cy = 163, r = 141;
         dialFace(cx, cy, r);
         for (let value = 0; value <= 70; value += 2) {
             const a = 225 + value / 70 * 270;

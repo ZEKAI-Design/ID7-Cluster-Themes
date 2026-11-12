@@ -69,10 +69,6 @@ class Car {
                 this.put('oil', scaled(v && v.temperatureEngineOilDrive, 255, 1, -48));
             },
         }, 2500);
-        add('de.bmw.infotainment.vehicle.CDS2', {
-            statusLateralAccelerationMassCenter: (v) => this.put('gLat', scaled(v && v.lateralAccelerationCentreOfGravity, 65535, 0.002 / 9.80665, -65 / 9.80665)),
-            statusLongitudinalAccelerationMassCenter: (v) => this.put('gLong', scaled(v && v.longitudinalAccelerationCentreOfGravity, 65535, 0.002 / 9.80665, -65 / 9.80665)),
-        }, 2500);
         add('de.bmw.infotainment.KombiIF', {
             statusRangeTankStatus: (v) => {
                 this.put('range', scaled(v && v.range, 4095, 1, 0));

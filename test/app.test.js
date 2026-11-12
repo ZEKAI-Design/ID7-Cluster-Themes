@@ -10,6 +10,8 @@ const app = '../apps/zekai_cluster_themes/';
 const { MapWindow, rectangle } = require(app + 'map-window');
 const { panel, DEMO, SLOTS, PALETTES } = require(app + 'dials');
 const { TANK_LITRES } = require(app + 'silver-dials');
+const { vdoPanel } = require(app + 'vdo-retro');
+const { PANEL_WIDTH, PANEL_HEIGHT, panelLayout } = require(app + 'panel-layout');
 const { FONTS } = require(app + 'instrument-type');
 const { Canvas } = require('../kit/runtime/canvas');
 const { get: getFont } = require('../kit/runtime/fonts');
@@ -86,6 +88,11 @@ test('Waze window is leased only while the map is live and respects other provid
 });
 
 test('both custom themes render with demo and missing signals; media and map are inner-only', () => {
+    for (const item of spec.settings) {
+        const options = new Map(item.options || []);
+        assert.equal(options.has('g'), false);
+        if (item.aliases && item.aliases.g) assert.ok(options.has(item.aliases.g));
+    }
     for (const theme of ['five', 'digital']) {
         const selections = {};
         for (const slot of SLOTS.concat('fallback')) {
@@ -100,6 +107,25 @@ test('both custom themes render with demo and missing signals; media and map are
         assert.ok(canvas.d.some((value) => value !== 0));
         panel(canvas, theme, selections, {}, { clock: '10:53' });
         assert.ok(canvas.d.some((value) => value > 200));
+    }
+});
+
+test('Retro 2000 round bezels nearly fill the panel without clipping', () => {
+    const canvas = new Canvas(PANEL_WIDTH, PANEL_HEIGHT);
+    const bezels = [];
+    const drawCircle = canvas.circle.bind(canvas);
+    canvas.circle = (x, y, r, colour) => {
+        if (colour === '#101214') bezels.push({ x, y, r });
+        return drawCircle(x, y, r, colour);
+    };
+    vdoPanel(canvas, DEMO, panelLayout('vdoRetro'));
+    assert.equal(bezels.length, 2);
+    const [left, right] = bezels;
+    assert.ok(left.x - left.r > 20 && left.x - left.r < 45);
+    assert.ok(PANEL_WIDTH - right.x - right.r > 20 && PANEL_WIDTH - right.x - right.r < 45);
+    for (const { y, r } of bezels) {
+        assert.ok(y - r > 12 && y - r < 32);
+        assert.ok(PANEL_HEIGHT - y - r > 12 && PANEL_HEIGHT - y - r < 32);
     }
 });
 
@@ -206,7 +232,7 @@ test('all custom instruments use the bundled Hanken Grotesk weights', () => {
     };
     const slots = {
         leftOuter: 'coolant', leftInner: 'media', rightInner: 'waze',
-        rightOuter: 'oil', fallback: 'g', faceColour: 'red', speedPosition: 'lower',
+        rightOuter: 'oil', fallback: 'temps', faceColour: 'red', speedPosition: 'lower',
     };
     for (const theme of ['five', 'silver', 'digital']) {
         used.clear();

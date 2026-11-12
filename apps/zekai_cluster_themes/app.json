@@ -2,7 +2,7 @@
   "id": "zekai_cluster_themes",
   "title": "ID7 Cluster Themes",
   "vendor": "ZEKAI Design",
-  "version": "0.8.3",
+  "version": "0.8.4",
   "loggingId": "ZCT1",
   "description": "Persistent, auto-starting instrument themes for BMW iDrive 7. Choose a theme in the app; select BMW original to turn the overlay off.",
   "autostart": true,
@@ -42,11 +42,6 @@
     "de.bmw.infotainment.vehicle.CDS": {
       "statusEngineSpeed2": "rs",
       "statusEngineTemperature": "rs"
-    },
-    "de.bmw.infotainment.vehicle.CDS2": {
-      "statusLateralAccelerationMassCenter": "rs",
-      "statusLongitudinalAccelerationMassCenter": "rs",
-      "_optional": "G meter"
     },
     "de.bmw.infotainment.KombiIF": {
       "statusRangeTankStatus": "rs",
@@ -194,6 +189,7 @@
       "when": {
         "instrumentTheme": "five"
       },
+      "aliases": { "g": "tyres" },
       "options": [
         [
           "media",
@@ -202,10 +198,6 @@
         [
           "waze",
           "Waze"
-        ],
-        [
-          "g",
-          "G meter"
         ],
         [
           "tyres",
@@ -249,6 +241,7 @@
       "when": {
         "instrumentTheme": "five"
       },
+      "aliases": { "g": "tyres" },
       "options": [
         [
           "media",
@@ -257,10 +250,6 @@
         [
           "waze",
           "Waze"
-        ],
-        [
-          "g",
-          "G meter"
         ],
         [
           "tyres",
@@ -335,15 +324,12 @@
       "key": "five_fallback",
       "label": "Five Dial / Waze fallback",
       "type": "choice",
-      "default": "g",
+      "default": "temps",
       "when": {
         "instrumentTheme": "five"
       },
+      "aliases": { "g": "temps" },
       "options": [
-        [
-          "g",
-          "G meter"
-        ],
         [
           "temps",
           "Oil and coolant"
@@ -362,11 +348,11 @@
       "when": {
         "instrumentTheme": "silver"
       },
+      "aliases": { "g": "tyres" },
       "options": [
         ["rpm", "Engine RPM"],
         ["media", "Now playing (demo)"],
         ["waze", "Waze"],
-        ["g", "G meter"],
         ["tyres", "Tyre pressures"],
         ["temps", "Oil and coolant"],
         ["coolant", "Coolant"],
@@ -385,11 +371,11 @@
       "when": {
         "instrumentTheme": "silver"
       },
+      "aliases": { "g": "tyres" },
       "options": [
         ["fuelRange", "Fuel & range"],
         ["media", "Now playing (demo)"],
         ["waze", "Waze"],
-        ["g", "G meter"],
         ["tyres", "Tyre pressures"],
         ["temps", "Oil and coolant"],
         ["coolant", "Coolant"],
@@ -404,12 +390,12 @@
       "key": "silver_fallback",
       "label": "Silver Trio / Waze fallback",
       "type": "choice",
-      "default": "g",
+      "default": "temps",
       "when": {
         "instrumentTheme": "silver"
       },
+      "aliases": { "g": "temps" },
       "options": [
-        ["g", "G meter"],
         ["temps", "Oil and coolant"],
         ["none", "Blank"]
       ]
@@ -457,6 +443,7 @@
       "when": {
         "instrumentTheme": "digital"
       },
+      "aliases": { "g": "tyres" },
       "options": [
         [
           "media",
@@ -465,10 +452,6 @@
         [
           "waze",
           "Waze"
-        ],
-        [
-          "g",
-          "G meter"
         ],
         [
           "tyres",
@@ -508,10 +491,11 @@
       "key": "digital_rightInner",
       "label": "Digital / Right inner",
       "type": "choice",
-      "default": "g",
+      "default": "tyres",
       "when": {
         "instrumentTheme": "digital"
       },
+      "aliases": { "g": "tyres" },
       "options": [
         [
           "media",
@@ -520,10 +504,6 @@
         [
           "waze",
           "Waze"
-        ],
-        [
-          "g",
-          "G meter"
         ],
         [
           "tyres",
@@ -598,15 +578,12 @@
       "key": "digital_fallback",
       "label": "Digital / Waze fallback",
       "type": "choice",
-      "default": "g",
+      "default": "temps",
       "when": {
         "instrumentTheme": "digital"
       },
+      "aliases": { "g": "temps" },
       "options": [
-        [
-          "g",
-          "G meter"
-        ],
         [
           "temps",
           "Oil and coolant"

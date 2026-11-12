@@ -87,20 +87,23 @@ mgu.run({
                 wazeFullPanel(cv, Object.assign({}, DEMO, { speed: 84, rpm: 2100, coolant: 91, oil: 98, stage: 'D', clock: '10:53' }), {
                     demo: true, x: 359, y: 77, w: 1202, h: 298,
                 });
-            } else if (theme === 'vdoRetro') {
-                vdoPanel(cv, Object.assign({}, DEMO, {
-                    speed: 68, rpm: 1850, coolant: 91, oil: 98, ambient: 15,
-                    economyMpgUs: 29.4, odometerKm: 152112, tripKm: 6.8, fuelLitres: 41,
-                }), { demo: true, x: 514, y: 78, scale: 0.92 });
-            } else if (theme === 'silver') {
+            } else if (theme === 'silver' || theme === 'vdoRetro') {
                 const layout = panelLayout(theme);
                 const fit = 298 / PANEL_HEIGHT;
-                panel(cv, theme, slots, DEMO, {
+                const opts = {
                     demo: true, background: false, clock: '10:53',
                     x: 960 - PANEL_WIDTH * fit / 2 + layout.x * fit,
                     y: 77 + layout.y * fit,
                     scale: layout.scale * fit,
-                });
+                };
+                if (theme === 'vdoRetro') {
+                    vdoPanel(cv, Object.assign({}, DEMO, {
+                        speed: 68, rpm: 1850, coolant: 91, oil: 98, ambient: 15,
+                        economyMpgUs: 29.4, odometerKm: 152112, tripKm: 6.8, fuelLitres: 41,
+                    }), opts);
+                } else {
+                    panel(cv, theme, slots, DEMO, opts);
+                }
             } else {
                 panel(cv, theme, slots, DEMO, { demo: true, x: 514, y: 78, scale: 0.92, clock: '10:53' });
             }

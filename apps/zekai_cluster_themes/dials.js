@@ -19,7 +19,7 @@ const SLOTS = ['leftOuter', 'leftInner', 'rightInner', 'rightOuter'];
 const SILVER_SLOTS = Object.keys(SILVER_SIDE_DIALS);
 const NAMES = {
     coolant: 'Coolant', oil: 'Engine oil', ambient: 'Outside temperature', range: 'Fuel range',
-    clock: 'Clock', g: 'G meter', tyres: 'Tyre pressures', temps: 'Oil and coolant',
+    clock: 'Clock', tyres: 'Tyre pressures', temps: 'Oil and coolant',
     media: 'Now playing', waze: 'Waze', none: 'Blank', rpm: 'Engine RPM', fuelRange: 'Fuel & range',
 };
 const SHORT = { coolant: 'COOLANT', oil: 'OIL', ambient: 'OUTSIDE', range: 'RANGE' };
@@ -34,7 +34,7 @@ const MAP_ROADS = [
 ];
 const MAP_ROUTE = [[-19, 90], [-2, 43], [-3, 9], [7, -5], [46, -19], [68, -56]];
 const DEMO = {
-    speed: 0, rpm: 0, coolant: 19, oil: 20, ambient: 15, range: 418, gLat: 0, gLong: 0,
+    speed: 0, rpm: 0, coolant: 19, oil: 20, ambient: 15, range: 418,
     pressureUnit: 'bar', tyres: [2.4, 2.4, 2.6, 2.6],
 };
 
@@ -164,17 +164,7 @@ function panel(canvas, theme, selections, data, opts) {
             }
             return text(data.pressureUnit || 'TYRES', cx, cy + 45, 12, SOFT);
         }
-        if (kind === 'g' || (kind === 'waze' && !demo)) {
-            if (kind === 'waze') return paintSlot(selections.fallback, cx, cy);
-            arc(cx, cy - 4, 30, 31, 0, 360, '#425775');
-            line(cx - 32, cy - 4, cx + 32, cy - 4, 1, '#425775');
-            line(cx, cy - 36, cx, cy + 28, 1, '#425775');
-            if (Number.isFinite(data.gLat) && Number.isFinite(data.gLong)) {
-                const limit = (n) => Math.max(-24, Math.min(24, n * 20));
-                disc(cx + limit(data.gLat), cy - 4 - limit(data.gLong), 4.2, '#a2ddff');
-            }
-            return text('G METER', cx, cy + 48, 12, SOFT);
-        }
+        if (kind === 'waze' && !demo) return paintSlot(selections.fallback, cx, cy);
         if (kind === 'media') {
             if (demo) return demoCover(cx, cy);
             box(cx - 25, cy - 44, 50, 50, 5, '#1a2435');
