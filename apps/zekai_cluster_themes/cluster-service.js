@@ -8,6 +8,9 @@ const { SLOTS, SILVER_SLOTS } = require('./dials');
 const { PANEL_WIDTH, PANEL_HEIGHT } = require('./panel-layout');
 const { renderPanelFrame, sendPanelFrame } = require('./panel-frame');
 
+const DRAW_INTERVAL_MS = 500;
+const RECOVERY_DELAYS_MS = [2000, 5000, 10000, 20000, 30000];
+
 function localTime() {
     return new Date().toTimeString().slice(0, 5);
 }
@@ -25,6 +28,11 @@ class ClusterService extends EventEmitter {
         this.lastFrame = null;
         this.lastPixels = null;
         this.message = 'Starting cluster theme service';
+        this.mapMessage = '';
+        this.layerState = '';
+        this.retryAt = 0;
+        this.failures = 0;
+        this.destroyed = false;
         this.theme = 'stock';
         this.choices = {};
         this.car = new Car();
@@ -36,12 +44,12 @@ class ClusterService extends EventEmitter {
         this.configure();
     }
 
-    status() { return this.message; }
+    status() { return this.mapMessage ? this.message + ' · ' + this.mapMessage : this.message; }
 
     report(message) {
         if (message === this.message) return;
         this.message = message;
-        this.emit('status', message);
+        this.emit('status', this.status());
     }
 
     choice(key) {
@@ -59,11 +67,13 @@ class ClusterService extends EventEmitter {
         if (theme === 'five') {
             slots.faceColour = this.choice('five_faceColour');
             slots.speedPosition = this.choice('five_speedPosition');
+            slots.fullRangeKm = this.choice('five_fullRangeKm');
         }
         return slots;
     }
 
     configure() {
+        if (this.destroyed) return;
         const theme = this.choice('instrumentTheme');
         const enabled = this.settings.get('clusterOverlayEnabled') !== false && theme !== 'stock';
         if (!enabled) {
@@ -74,8 +84,13 @@ class ClusterService extends EventEmitter {
         this.theme = theme;
         this.choices = this.selections(theme);
         this.lastFrame = null;
-        if (!this.client) this.connect();
-        else this.draw();
+        if (!this.timer) this.timer = setInterval(() => this.tick(), DRAW_INTERVAL_MS);
+        this.tick();
+    }
+
+    tick() {
+        if (this.client) this.draw();
+        else if (Date.now() >= this.retryAt) this.connect();
     }
 
     connect() {
@@ -86,8 +101,8 @@ class ClusterService extends EventEmitter {
         client.on('ready', () => {
             if (!current()) return;
             if (client.backend !== 'id7' || !String(client.targets).split(',').includes('panel:' + PANEL_WIDTH + 'x' + PANEL_HEIGHT)) {
-                this.report('This renderer does not expose the full ID7 panel');
                 this.stop();
+                this.report('This renderer does not expose the full ID7 panel');
                 return;
             }
             this.connected = true;
@@ -96,9 +111,11 @@ class ClusterService extends EventEmitter {
                     target: 'panel', klass: 'overlay', x: 0, y: 0, w: PANEL_WIDTH, h: PANEL_HEIGHT,
                     iw: PANEL_WIDTH, ih: PANEL_HEIGHT, sampling: 'nearest', contend: false, fps: 2,
                 });
+                if (!this.ref) return this.recover();
             }
             this.lastFrame = null;
             this.lastPixels = null;
+            this.layerState = '';
             this.draw();
         });
         client.on('disconnected', () => {
@@ -108,15 +125,39 @@ class ClusterService extends EventEmitter {
             this.map.release();
             this.report('Renderer reconnecting; selected theme will resume');
         });
-        client.on('layer', (ref, state) => {
+        client.on('layer', (ref, state, reason) => {
             if (!current() || ref !== this.ref) return;
-            if (state === 'shown') this.report('Selected theme active until BMW original is chosen');
-            else if (state === 'suspended') this.report('Theme suspended by another cluster layer');
-            else if (state === 'error') this.report('Renderer reported a cluster layer error');
+            this.layerState = state;
+            if (this.log.info) this.log.info('Cluster panel layer: ' + state + (reason ? ' (' + reason + ')' : ''));
+            if (state === 'shown') {
+                this.failures = 0;
+                this.report('Selected theme active');
+            }
+            else if (state === 'suspended' || state === 'hidden') {
+                this.map.wait('');
+                this.setMapMessage('');
+                this.report('Instrument panel temporarily unavailable');
+            } else if (state === 'error') this.report('Renderer reported a cluster layer error');
         });
-        client.on('refused', () => { if (current()) this.report('Renderer refused the cluster theme'); });
+        client.on('target', (target, state, holder, reason) => {
+            if (current() && target === 'panel' && this.log.info) {
+                this.log.info('Cluster panel target: ' + state + (reason ? ' (' + reason + ')' : ''));
+            }
+        });
+        client.on('refused', (op, ref, reason) => {
+            if (!current()) return;
+            this.log.warn('Cluster renderer refused ' + op + ': ' + reason);
+            if (op === 'image' || op === 'frame') this.recover();
+            else this.report('Renderer refused the cluster theme');
+        });
         client.connect();
-        this.timer = setInterval(() => this.draw(), 500);
+    }
+
+    setMapMessage(message) {
+        if (message === this.mapMessage) return;
+        this.mapMessage = message;
+        if (message && this.log.info) this.log.info(message);
+        this.emit('status', this.status());
     }
 
     draw() {
@@ -124,7 +165,9 @@ class ClusterService extends EventEmitter {
         try {
             const data = this.car.snapshot();
             data.clock = localTime();
-            data.mapSlot = this.map.update(this.choices, this.theme);
+            const panelAvailable = this.layerState !== 'suspended' && this.layerState !== 'hidden';
+            data.mapSlot = panelAvailable ? this.map.update(this.choices, this.theme) : null;
+            this.setMapMessage(panelAvailable ? this.map.message : '');
             const signature = JSON.stringify([this.theme, this.choices, data]);
             if (signature === this.lastFrame) return;
 
@@ -134,26 +177,41 @@ class ClusterService extends EventEmitter {
             this.lastFrame = signature;
         } catch (error) {
             this.log.warn('cluster theme draw: ' + (error && error.message || error));
-            this.report('Theme drawing stopped; select Enable selected theme to retry');
-            this.stop();
+            this.recover();
         }
     }
 
-    stop() {
-        if (this.timer) clearInterval(this.timer);
-        this.timer = null;
+    recover() {
+        const delay = RECOVERY_DELAYS_MS[Math.min(this.failures++, RECOVERY_DELAYS_MS.length - 1)];
+        this.retryAt = Date.now() + delay;
+        this.releaseClient();
+        this.report('Theme interrupted; reconnecting automatically');
+    }
+
+    releaseClient() {
         const client = this.client;
         this.client = null;
         this.ref = null;
         this.connected = false;
         this.lastFrame = null;
         this.lastPixels = null;
-        this.map.release();
+        this.layerState = '';
+        this.map.wait('');
+        this.setMapMessage('');
         if (client) client.close();
+    }
+
+    stop() {
+        if (this.timer) clearInterval(this.timer);
+        this.timer = null;
+        this.retryAt = 0;
+        this.failures = 0;
+        this.releaseClient();
         this.report('BMW original active');
     }
 
     destroy() {
+        this.destroyed = true;
         this.stop();
     }
 }

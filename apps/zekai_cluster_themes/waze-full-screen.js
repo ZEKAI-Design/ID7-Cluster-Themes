@@ -40,7 +40,9 @@ function wazeFullPanel(canvas, data, opts = {}) {
     };
 
     if (opts.demo) drawMap();
-    else if (!opts.active) return canvas;
+    else if (!opts.active) {
+        text('Waze map unavailable', 480, designH / 2, 20, MAP.muted);
+    }
 
     // Transparent between these bars so the live Waze video stays visible.
     rect(0, 0, 960, 57, MAP.bar);
@@ -51,7 +53,7 @@ function wazeFullPanel(canvas, data, opts = {}) {
     const clock = data.clock || '--:--';
     const ambient = Number.isFinite(data.ambient) ? Math.round(data.ambient) + '°' : '--°';
     const speed = Number.isFinite(data.speed) ? Math.round(data.speed) : '--';
-    const gear = data.stage === 'P' ? 'P' : data.stage === 'D' || data.stage === 'R' || data.stage === 'N' ? data.stage : 'D';
+    const gear = ['P', 'D', 'R', 'N'].includes(data.stage) ? data.stage : '--';
     text(clock, 31, 36, 20, MAP.ink, 'left', 'medium');
     text(ambient, 104, 36, 18, MAP.muted, 'left');
     text(speed, 480, 41, 35, MAP.ink, 'center', 'bold');

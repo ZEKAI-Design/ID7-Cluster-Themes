@@ -4,8 +4,9 @@ const fs = require('fs');
 const path = require('path');
 const { PANEL_WIDTH, PANEL_HEIGHT, panelLayout, SILVER_SIDE_DIALS, SILVER_SIDE_Y } = require('./panel-layout');
 
-const STATUS_AGE_MS = 2500;
+const STATUS_AGE_MS = 4000;
 const REFRESH_MS = 750;
+const PANEL_HANDOFF_MS = 1200;
 const MAP_SLOT = { leftInner: 306, rightInner: 654 };
 
 class MapWindow {
@@ -20,13 +21,15 @@ class MapWindow {
         this.nextPoll = 0;
         this.active = null;
         this.warned = false;
+        this.message = '';
+        this.confirmAfter = 0;
     }
 
     update(choices, theme) {
         const side = choices.mapMode === 'full'
             ? 'fullMap'
             : Object.keys(MAP_SLOT).find((slot) => choices[slot] === 'waze');
-        if (!side) { this.release(); return null; }
+        if (!side) return this.wait('');
         const rect = rectangle(side, theme);
         const leaseKey = [rect.x, rect.y, rect.w, rect.h].join(' ');
         if (this.fd !== null && this.leaseKey !== leaseKey) this.release();
@@ -37,24 +40,37 @@ class MapWindow {
         try {
             const st = fs.statSync(this.status);
             const age = now - st.mtimeMs;
-            if (age < 0 || age > STATUS_AGE_MS || !st.isFile() || st.size > 8192) return this.release();
+            if (age < 0 || age > STATUS_AGE_MS || !st.isFile() || st.size > 8192) {
+                return this.wait('Waze: no recent map status');
+            }
             const state = JSON.parse(fs.readFileSync(this.status, 'utf8'));
-            const changingTarget = this.fd !== null && state.target === 'panel' && state.state === 'starting';
-            if ((state.state !== 'showing' && !changingTarget) || state.cluster === 0 || state.paused) return this.release();
-            if (this.fd === null && state.target !== 'map') return null;
-            if (this.fd === null) this.claim(leaseKey);
-            if (!this.owns()) { this.release(); return null; }
+            if (state.cluster === 0 || state.paused) return this.wait('Waze: cluster display off or paused');
+            if (!['showing', 'starting'].includes(state.state)) return this.wait('Waze: waiting for map stream');
+            if (!['map', 'panel'].includes(state.target)) return this.wait('Waze: enable Cluster output');
+            if (this.fd === null) {
+                this.claim(leaseKey);
+                this.confirmAfter = state.target === 'panel' ? now + PANEL_HANDOFF_MS : now;
+            }
+            if (!this.owns()) return this.wait('Waze: window held by another app');
             const stamp = new Date(now);
             fs.futimesSync(this.fd, stamp, stamp);
-            if (state.target === 'panel' && state.state === 'showing') this.active = side;
+            if (state.target === 'panel' && state.state === 'showing' && st.mtimeMs >= this.confirmAfter) this.active = side;
+            this.message = this.active ? '' : 'Waze: waiting for panel window support';
         } catch (error) {
-            this.release();
             if (!this.warned && error.code !== 'ENOENT' && error.code !== 'EEXIST') {
                 this.warned = true;
                 this.log.warn('Waze window unavailable: ' + error.message);
             }
+            if (error.code === 'EEXIST') return this.wait('Waze: window held by another app');
+            return this.wait(error.code === 'ENOENT' ? 'Waze: map provider not running' : 'Waze: window unavailable');
         }
         return this.active;
+    }
+
+    wait(message) {
+        this.release();
+        this.message = message;
+        return null;
     }
 
     claim(leaseKey) {

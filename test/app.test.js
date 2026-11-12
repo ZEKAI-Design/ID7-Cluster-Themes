@@ -52,7 +52,7 @@ test('Waze window is leased only while the map is live and respects other provid
         const choices = { rightInner: 'waze' };
         assert.equal(lease.update(choices), null);
         now += 800;
-        report({ target: 'map', state: 'showing', cluster: 1 });
+        report({ target: 'map', state: 'starting', cluster: 1 });
         assert.equal(lease.update(choices), null);
         const rect = rectangle('rightInner');
         assert.equal(fs.readFileSync(file, 'utf8'), 'panel ' + [rect.x, rect.y, rect.w, rect.h].join(' ') + '\n');
@@ -60,12 +60,11 @@ test('Waze window is leased only while the map is live and respects other provid
         report({ target: 'panel', state: 'showing', cluster: 1 });
         assert.equal(lease.update(choices), 'rightInner');
         assert.equal(lease.update(choices, 'silver'), null);
-        assert.equal(fs.existsSync(file), false);
-        now += 800;
-        report({ target: 'map', state: 'showing', cluster: 1 });
-        assert.equal(lease.update(choices, 'silver'), null);
         const silverRect = rectangle('rightInner', 'silver');
         assert.equal(fs.readFileSync(file, 'utf8'), 'panel ' + [silverRect.x, silverRect.y, silverRect.w, silverRect.h].join(' ') + '\n');
+        now += 800;
+        report({ target: 'panel', state: 'showing', cluster: 1 });
+        assert.equal(lease.update(choices, 'silver'), null);
         now += 800;
         report({ target: 'panel', state: 'showing', cluster: 1 });
         assert.equal(lease.update(choices, 'silver'), 'rightInner');
@@ -143,6 +142,21 @@ test('Five Dial palettes change the actual face and lower speed stays separate f
     assert.equal(colours.size, Object.keys(PALETTES).length);
 });
 
+test('Five Dial range arc follows the live range and stays empty with no reading', () => {
+    const canvas = new Canvas(960, 320);
+    const drawArc = canvas.arc.bind(canvas);
+    let filled;
+    canvas.arc = (...args) => {
+        if (args[6] === '#dce7ff') filled = args[5] - args[4];
+        return drawArc(...args);
+    };
+    for (const [range, span] of [[undefined, 0], [0, 0], [200, 11.5], [600, 34.5], [900, 46]]) {
+        filled = 0;
+        panel(canvas, 'five', { fullRangeKm: '800' }, { range }, {});
+        assert.equal(filled, span);
+    }
+});
+
 test('Silver Trio draws its default and customized side dials independently', () => {
     const canvas = new Canvas(960, 320);
     const labels = [];
@@ -218,6 +232,8 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
     const renderers = [];
     const process = new EventEmitter();
     const app = new EventEmitter();
+    let now = Date.now();
+    class TestDate extends Date { static now() { return now; } }
     let frame, onVisible, interval, impl, background;
     const settings = {
         get: (key) => values.get(key),
@@ -239,7 +255,7 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
     const serviceModule = { exports: {} };
     const servicePath = path.join(artifact, 'cluster-service.js');
     vm.runInNewContext(fs.readFileSync(servicePath, 'utf8'), {
-        module: serviceModule, Buffer, process,
+        module: serviceModule, Buffer, process, Date: TestDate,
         setInterval(fn) { interval = fn; return fn; },
         clearInterval(fn) { if (interval === fn) interval = null; },
         require(name) { return name === './cluster_render_client' ? renderStub : packagedRequire(name); },
@@ -291,11 +307,30 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
         frame.targets.find((target) => target.key === 'theme:vdoRetro').run();
         onVisible('MAIN', false);
         assert.equal(renderer.connected, true);
+        renderer.emit('layer', 1, 'suspended', 'another layer');
+        interval();
+        assert.equal(renderer.args.contend, false);
+        assert.equal(renderers.length, 1);
+        renderer.emit('layer', 1, 'shown');
+        renderer.pixels = () => { throw new Error('simulated frame failure'); };
+        background.lastPixels = null;
+        background.lastFrame = null;
+        interval();
+        assert.equal(renderer.connected, false);
+        assert.match(background.status(), /reconnecting/);
+        now += 1999;
+        interval();
+        assert.equal(renderers.length, 1);
+        now += 1;
+        interval();
+        const recovered = renderers[1];
+        recovered.emit('ready');
+        assert.equal(recovered.frames, 1);
         click.get('BTN_RESTORE')();
         assert.equal(values.get('clusterOverlayEnabled'), false);
-        assert.equal(renderer.connected, false);
+        assert.equal(recovered.connected, false);
         const restarted = impl.background(bgContext);
-        assert.equal(renderers.length, 1);
+        assert.equal(renderers.length, 2);
         assert.equal(restarted.status(), 'BMW original active');
         click.get('BTN_APPLY')();
         assert.equal(values.get('clusterOverlayEnabled'), true);

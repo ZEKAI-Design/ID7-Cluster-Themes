@@ -7,6 +7,7 @@ const { SILVER_SIDE_DIALS } = require('./panel-layout');
 const INK = '#eef4ff';
 const SOFT = '#acbbd5';
 const DARK = '#05080f';
+const DEFAULT_FULL_RANGE_KM = 800;
 const PALETTES = {
     navy: { rim: '#9eadd1', edge: '#425274', face: '#060910', glow: '#0c1322', ring: '#1b2843' },
     blue: { rim: '#9bb6df', edge: '#293d5c', face: '#112037', glow: '#2e4b72', ring: '#314e78' },
@@ -181,7 +182,7 @@ function panel(canvas, theme, selections, data, opts) {
             line(cx - 2, cy - 13, cx - 2, cy - 32, 3, INK);
             line(cx - 2, cy - 32, cx + 10, cy - 27, 3, INK);
             text('NOW PLAYING', cx, cy + 28, 14, INK, 'bold');
-            return text('Source unavailable', cx, cy + 47, 12, SOFT);
+            return text('No CarPlay track data', cx, cy + 47, 12, SOFT);
         }
         if (kind === 'waze') return demoMap(cx, cy);
     };
@@ -281,7 +282,12 @@ function panel(canvas, theme, selections, data, opts) {
     text('km/h', centreX, lowSpeed ? 226 : 204, 10, INK, 'medium');
     const rangeArcRadius = 98;
     text(number(data.range) + ' km', centreX, centreY + rangeArcRadius - 7, 17, INK, 'medium');
-    arc(centreX, centreY, rangeArcRadius, 101, 157, 203, '#dce7ff', { round: true });
+    const fullRange = Number(selections.fullRangeKm) || DEFAULT_FULL_RANGE_KM;
+    const fill = Number.isFinite(data.range) ? Math.max(0, Math.min(1, data.range / fullRange)) : 0;
+    arc(centreX, centreY, rangeArcRadius, 101, 157, 203, '#586783');
+    if (fill > 0) {
+        arc(centreX, centreY, rangeArcRadius, 101, 203 - 46 * fill, 203, '#dce7ff');
+    }
 }
 
 module.exports = { panel, SLOTS, SILVER_SLOTS, NAMES, DEMO, PALETTES };

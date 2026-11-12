@@ -2,7 +2,7 @@
   "id": "zekai_cluster_themes",
   "title": "ID7 Cluster Themes",
   "vendor": "ZEKAI Design",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "loggingId": "ZCT1",
   "description": "Persistent, auto-starting instrument themes for BMW iDrive 7. Choose a theme in the app; select BMW original to turn the overlay off.",
   "autostart": true,
@@ -133,6 +133,22 @@
       "options": [
         ["centre", "Centre"],
         ["lower", "Lower"]
+      ]
+    },
+    {
+      "key": "five_fullRangeKm",
+      "label": "Five Dial / Full range for arc",
+      "type": "choice",
+      "default": "800",
+      "when": {
+        "instrumentTheme": "five"
+      },
+      "options": [
+        ["600", "600 km"],
+        ["700", "700 km"],
+        ["800", "800 km"],
+        ["900", "900 km"],
+        ["1000", "1000 km"]
       ]
     },
     {

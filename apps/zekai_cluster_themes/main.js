@@ -6,6 +6,7 @@ const { ClusterService } = require('./cluster-service');
 const { panel, SLOTS, SILVER_SLOTS, NAMES, DEMO, PALETTES } = require('./dials');
 const { wazeFullPanel } = require('./waze-full-screen');
 const { vdoPanel } = require('./vdo-retro');
+const { PANEL_WIDTH, PANEL_HEIGHT, panelLayout } = require('./panel-layout');
 
 const THEMES = [['stock', 'BMW original'], ['five', 'Five Dial'], ['silver', 'Silver Trio'], ['digital', 'Digital'], ['wazeFull', 'Waze Full Map'], ['vdoRetro', 'VDO Retro 2000']];
 const SLOT_LABELS = ['Left outer', 'Left inner', 'Right inner', 'Right outer'];
@@ -32,6 +33,7 @@ mgu.run({
             if (theme === 'five') {
                 slots.faceColour = choice('five_faceColour');
                 slots.speedPosition = choice('five_speedPosition');
+                slots.fullRangeKm = choice('five_fullRangeKm');
             }
             return slots;
         }
@@ -90,6 +92,15 @@ mgu.run({
                     speed: 68, rpm: 1850, coolant: 91, oil: 98, ambient: 15,
                     economyMpgUs: 29.4, odometerKm: 152112, tripKm: 6.8, fuelLitres: 41,
                 }), { demo: true, x: 514, y: 78, scale: 0.92 });
+            } else if (theme === 'silver') {
+                const layout = panelLayout(theme);
+                const fit = 298 / PANEL_HEIGHT;
+                panel(cv, theme, slots, DEMO, {
+                    demo: true, background: false, clock: '10:53',
+                    x: 960 - PANEL_WIDTH * fit / 2 + layout.x * fit,
+                    y: 77 + layout.y * fit,
+                    scale: layout.scale * fit,
+                });
             } else {
                 panel(cv, theme, slots, DEMO, { demo: true, x: 514, y: 78, scale: 0.92, clock: '10:53' });
             }
