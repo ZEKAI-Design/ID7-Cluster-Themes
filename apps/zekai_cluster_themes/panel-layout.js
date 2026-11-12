@@ -15,7 +15,7 @@ function panelLayout(theme) {
         return { scale, x: PANEL_WIDTH / 2 - 480 * scale, y: 338 - 165 * scale };
     }
     if (theme === 'vdoRetro') {
-        const scale = 2.34;
+        const scale = 2.26;
         return { scale, x: PANEL_WIDTH / 2 - 480 * scale, y: PANEL_HEIGHT / 2 - 163 * scale };
     }
     return { scale: 2, x: 0, y: 40 };

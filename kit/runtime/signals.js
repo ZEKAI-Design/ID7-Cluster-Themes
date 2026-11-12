@@ -49,6 +49,7 @@ function loadConfig(iface) {
  * show up without waiting for the next change.
  * opts.pollMs: also re-read those fields that often while the provider is available - for
  * fields a car may not notify (BMW's x_call only ever reads TPMS, it never subscribes).
+ * opts.pollByField: minimum interval for individual getters that need slower polling.
  */
 async function watch(iface, instance, handlers, log, opts) {
     const res = { iface, available: false, proxy: null, error: null, shutdown: () => Promise.resolve() };
@@ -61,11 +62,15 @@ async function watch(iface, instance, handlers, log, opts) {
         const fields = Object.keys(handlers || {});
         const notified = Object.create(null);
         const pending = new Set();
-        const fetchAll = () => fields.forEach((f) => {
+        const lastRequested = Object.create(null);
+        const fetchAll = (force = false) => fields.forEach((f) => {
             if (!cfg.fields || !cfg.fields[f] || !cfg.fields[f].getter || pending.has(f)) return;
             if (opts && opts.shouldPoll && !opts.shouldPoll()) return;
             const revision = notified[f];
             const started = Date.now();
+            const minInterval = opts && opts.pollByField && opts.pollByField[f];
+            if (!force && minInterval && started - lastRequested[f] < minInterval) return;
+            lastRequested[f] = started;
             const timeout = opts && opts.readTimeoutMs || 3000;
             pending.add(f);
             p.getValue(f, timeout).then((v) => {
@@ -73,7 +78,7 @@ async function watch(iface, instance, handlers, log, opts) {
             }).catch(() => {}).then(() => pending.delete(f));
         });
         await nativeTick(() => {
-            try { return p.subscribeToAvailability((a) => { res.available = !!a; if (a) setImmediate(fetchAll); }); } catch (e) { return null; /* older binding */ }
+            try { return p.subscribeToAvailability((a) => { res.available = !!a; if (a) setImmediate(() => fetchAll(true)); }); } catch (e) { return null; /* older binding */ }
         });
         for (const f of fields) {
             try {

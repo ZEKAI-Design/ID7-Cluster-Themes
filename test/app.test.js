@@ -113,20 +113,28 @@ test('both custom themes render with demo and missing signals; media and map are
 test('Retro 2000 round bezels nearly fill the panel without clipping', () => {
     const canvas = new Canvas(PANEL_WIDTH, PANEL_HEIGHT);
     const bezels = [];
+    const miniDials = [];
+    const labels = [];
     const drawCircle = canvas.circle.bind(canvas);
+    const drawText = canvas.text.bind(canvas);
     canvas.circle = (x, y, r, colour) => {
         if (colour === '#101214') bezels.push({ x, y, r });
+        if (colour === '#202326' && r > 40) miniDials.push({ x, y, r });
         return drawCircle(x, y, r, colour);
     };
-    vdoPanel(canvas, DEMO, panelLayout('vdoRetro'));
+    canvas.text = (value, ...args) => { labels.push(value); return drawText(value, ...args); };
+    vdoPanel(canvas, Object.assign({}, DEMO, { coolant: 91 }), panelLayout('vdoRetro'));
     assert.equal(bezels.length, 2);
     const [left, right] = bezels;
-    assert.ok(left.x - left.r > 20 && left.x - left.r < 45);
-    assert.ok(PANEL_WIDTH - right.x - right.r > 20 && PANEL_WIDTH - right.x - right.r < 45);
+    assert.ok(left.x - left.r > 50 && left.x - left.r < 75);
+    assert.ok(PANEL_WIDTH - right.x - right.r > 50 && PANEL_WIDTH - right.x - right.r < 75);
     for (const { y, r } of bezels) {
-        assert.ok(y - r > 12 && y - r < 32);
-        assert.ok(PANEL_HEIGHT - y - r > 12 && PANEL_HEIGHT - y - r < 32);
+        assert.ok(y - r > 25 && y - r < 45);
+        assert.ok(PANEL_HEIGHT - y - r > 25 && PANEL_HEIGHT - y - r < 45);
     }
+    assert.equal(miniDials.length, 2);
+    for (const { x, y, r } of miniDials) assert.ok(Math.hypot(x - right.x, y - right.y) + r < right.r);
+    assert.ok(labels.includes('COOLANT') && labels.includes('91°C'));
 });
 
 test('Five Dial palettes change the actual face and lower speed stays separate from range', () => {
@@ -250,7 +258,16 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
     const packagedRequire = require('node:module').createRequire(entry);
     const spec = packagedRequire('./kit/app-spec.json');
     assert.equal(packagedRequire('../package.json').mguAppStartType, 'autostart');
+    const { renderPanelFrame } = packagedRequire('./panel-frame');
+    for (const theme of ['five', 'silver']) {
+        const side = 'rightInner';
+        for (const kind of ['media', 'waze']) {
+            const picture = renderPanelFrame(theme, { [side]: kind }, { mapSlot: kind === 'waze' ? side : null });
+            for (let i = 3; i < picture.d.length; i += 4) assert.equal(picture.d[i], 255);
+        }
+    }
     const handlers = new Map();
+    const watchOptions = new Map();
     const click = new Map();
     const values = new Map(spec.settings.map((item) => [item.key, item.default]));
     values.set('instrumentTheme', 'vdoRetro');
@@ -260,7 +277,7 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
     const app = new EventEmitter();
     let now = Date.now();
     class TestDate extends Date { static now() { return now; } }
-    let frame, onVisible, interval, impl, background;
+    let frame, onVisible, interval, motion, impl, background;
     const settings = {
         get: (key) => values.get(key),
         item: (key) => spec.settings.find((item) => item.key === key),
@@ -273,7 +290,10 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
     };
     const bgContext = {
         spec, app, settings, log: { warn() {} },
-        signals: { watch: async (name, instance, fields) => { handlers.set(name, fields); } },
+        signals: { watch: async (name, instance, fields, log, opts) => {
+            handlers.set(name, fields);
+            watchOptions.set(name, opts);
+        } },
     };
     const renderStub = { ClusterRender: class extends FakeRender {
         constructor() { super(); renderers.push(this); }
@@ -282,8 +302,10 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
     const servicePath = path.join(artifact, 'cluster-service.js');
     vm.runInNewContext(fs.readFileSync(servicePath, 'utf8'), {
         module: serviceModule, Buffer, process, Date: TestDate,
-        setInterval(fn) { interval = fn; return fn; },
+        setInterval(fn, ms) { assert.equal(ms, 100); interval = fn; return fn; },
         clearInterval(fn) { if (interval === fn) interval = null; },
+        setTimeout(fn) { motion = fn; return fn; },
+        clearTimeout(fn) { if (motion === fn) motion = null; },
         require(name) { return name === './cluster_render_client' ? renderStub : packagedRequire(name); },
     }, { filename: servicePath });
     vm.runInNewContext(fs.readFileSync(entry, 'utf8'), {
@@ -303,16 +325,29 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
         assert.equal(renderer.args.iw, renderer.args.w);
         assert.equal(renderer.args.ih, renderer.args.h);
         assert.equal(renderer.args.sampling, 'nearest');
+        assert.equal(renderer.args.fps, 10);
         assert.equal(renderer.frames, 1);
         assert.equal(renderer.rects, null);
         assert.equal(renderer.bytes, 1920 * 720 * 4);
-        handlers.get('de.bmw.infotainment.vehicle.Vehicle2').statusCarSpeed2({ speedVehicleCentreOfGravity: 68 * 64 });
+        const vehicle2 = 'de.bmw.infotainment.vehicle.Vehicle2';
+        const cds = 'de.bmw.infotainment.vehicle.CDS';
+        assert.equal(watchOptions.get(vehicle2).pollMs, 150);
+        assert.equal(watchOptions.get(cds).pollMs, 200);
+        assert.equal(watchOptions.get(cds).pollByField.statusEngineTemperature, 2500);
         handlers.get('de.bmw.infrastructure.VehicleInformation').statusGearboxDrive({ statusActualStageDrive: 'D' });
-        interval();
+        now += 100;
+        handlers.get(vehicle2).statusCarSpeed2({ speedVehicleCentreOfGravity: 68 * 64 });
         assert.equal(renderer.frames, 2);
         assert.ok(renderer.rects.length > 0 && renderer.rects.length <= 15);
         assert.equal(renderer.bytes, renderer.rects.reduce((bytes, rect) => bytes + rect.w * rect.h * 4, 0));
         assert.ok(renderer.bytes < 1920 * 720 * 4);
+        handlers.get(vehicle2).statusCarSpeed2({ speedVehicleCentreOfGravity: 72 * 64 });
+        handlers.get(vehicle2).statusCarSpeed2({ speedVehicleCentreOfGravity: 77 * 64 });
+        assert.equal(renderer.frames, 2);
+        now += 100;
+        motion();
+        assert.equal(renderer.frames, 3);
+        assert.equal(JSON.parse(background.lastFrame)[2].speed, 77);
         impl.start({
             settings, background,
             ui: {
@@ -341,6 +376,7 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
         renderer.pixels = () => { throw new Error('simulated frame failure'); };
         background.lastPixels = null;
         background.lastFrame = null;
+        now += 100;
         interval();
         assert.equal(renderer.connected, false);
         assert.match(background.status(), /reconnecting/);

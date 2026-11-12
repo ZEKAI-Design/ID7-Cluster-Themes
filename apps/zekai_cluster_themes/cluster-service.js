@@ -8,7 +8,8 @@ const { SLOTS, SILVER_SLOTS } = require('./dials');
 const { PANEL_WIDTH, PANEL_HEIGHT } = require('./panel-layout');
 const { renderPanelFrame, sendPanelFrame } = require('./panel-frame');
 
-const DRAW_INTERVAL_MS = 500;
+const DRAW_INTERVAL_MS = 100;
+const PANEL_FPS = 10;
 const RECOVERY_DELAYS_MS = [2000, 5000, 10000, 20000, 30000];
 
 function localTime() {
@@ -25,8 +26,11 @@ class ClusterService extends EventEmitter {
         this.ref = null;
         this.connected = false;
         this.timer = null;
+        this.motionTimer = null;
+        this.lastDrawAt = -Infinity;
         this.lastFrame = null;
         this.lastPixels = null;
+        this.scratchPixels = null;
         this.message = 'Starting cluster theme service';
         this.mapMessage = '';
         this.layerState = '';
@@ -35,7 +39,7 @@ class ClusterService extends EventEmitter {
         this.destroyed = false;
         this.theme = 'stock';
         this.choices = {};
-        this.car = new Car();
+        this.car = new Car(Date.now, () => this.requestMotionDraw());
         this.map = new MapWindow(this.log);
         this.car.watch(context);
         this.settings.onChange(() => this.configure());
@@ -93,6 +97,16 @@ class ClusterService extends EventEmitter {
         else if (Date.now() >= this.retryAt) this.connect();
     }
 
+    requestMotionDraw() {
+        if (!this.connected || !this.ref || this.motionTimer) return;
+        const delay = DRAW_INTERVAL_MS - (Date.now() - this.lastDrawAt);
+        if (delay <= 0) return this.draw();
+        this.motionTimer = setTimeout(() => {
+            this.motionTimer = null;
+            this.draw();
+        }, delay);
+    }
+
     connect() {
         this.report('Connecting to the instrument panel');
         const client = new ClusterRender(this.context.spec.id);
@@ -109,13 +123,14 @@ class ClusterService extends EventEmitter {
             if (!this.ref) {
                 this.ref = client.image({
                     target: 'panel', klass: 'overlay', x: 0, y: 0, w: PANEL_WIDTH, h: PANEL_HEIGHT,
-                    iw: PANEL_WIDTH, ih: PANEL_HEIGHT, sampling: 'nearest', contend: false, fps: 2,
+                    iw: PANEL_WIDTH, ih: PANEL_HEIGHT, sampling: 'nearest', contend: false, fps: PANEL_FPS,
                 });
                 if (!this.ref) return this.recover();
             }
             this.lastFrame = null;
             this.lastPixels = null;
             this.layerState = '';
+            this.lastDrawAt = -Infinity;
             this.draw();
         });
         client.on('disconnected', () => {
@@ -161,9 +176,14 @@ class ClusterService extends EventEmitter {
     }
 
     draw() {
-        if (!this.client || !this.connected || !this.ref || this.theme === 'stock') return;
+        if (!this.client || !this.connected || !this.ref || this.theme === 'stock' || this.client.blocked) return;
+        const now = Date.now();
+        if (now - this.lastDrawAt < DRAW_INTERVAL_MS) return;
         try {
             const data = this.car.snapshot();
+            // The speed text uses whole km/h. Avoid repainting the panel for
+            // fluctuations that do not change the displayed reading.
+            if (this.theme !== 'vdoRetro' && Number.isFinite(data.speed)) data.speed = Math.round(data.speed);
             data.clock = localTime();
             const panelAvailable = this.layerState !== 'suspended' && this.layerState !== 'hidden';
             data.mapSlot = panelAvailable ? this.map.update(this.choices, this.theme) : null;
@@ -171,8 +191,10 @@ class ClusterService extends EventEmitter {
             const signature = JSON.stringify([this.theme, this.choices, data]);
             if (signature === this.lastFrame) return;
 
-            const frame = renderPanelFrame(this.theme, this.choices, data);
+            this.lastDrawAt = now;
+            const frame = renderPanelFrame(this.theme, this.choices, data, false, this.scratchPixels || undefined);
             if (!sendPanelFrame(this.client, this.ref, frame, this.lastPixels)) return;
+            this.scratchPixels = this.lastPixels;
             this.lastPixels = frame;
             this.lastFrame = signature;
         } catch (error) {
@@ -189,12 +211,16 @@ class ClusterService extends EventEmitter {
     }
 
     releaseClient() {
+        if (this.motionTimer) clearTimeout(this.motionTimer);
+        this.motionTimer = null;
+        this.lastDrawAt = -Infinity;
         const client = this.client;
         this.client = null;
         this.ref = null;
         this.connected = false;
         this.lastFrame = null;
         this.lastPixels = null;
+        this.scratchPixels = null;
         this.layerState = '';
         this.map.wait('');
         this.setMapMessage('');

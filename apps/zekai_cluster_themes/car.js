@@ -1,6 +1,7 @@
 'use strict';
 
 const DATA_MAX_AGE_MS = 12000;
+const SPEED_MAX_AGE_MS = 1500;
 const PRESSURE_UNITS = { 1: 'bar', 2: 'kPa', 3: 'psi', BAR: 'bar', KPA: 'kPa', PSI: 'psi' };
 const CONSUMPTION_UNITS = {
     VERBRAUCH_IN_L_S_100KM: 'l100', VERBRAUCH_IN_MPG_UK: 'mpgUk', VERBRAUCH_IN_MPG_US: 'mpgUs', VERBRAUCH_IN_KM_S_L: 'kml',
@@ -23,13 +24,16 @@ function economyMpgUs(raw, unit) {
 }
 
 class Car {
-    constructor(now = Date.now) {
+    constructor(now = Date.now, onMotion = () => {}) {
         this.now = now;
+        this.onMotion = onMotion;
         this.values = Object.create(null);
     }
 
     put(key, value) {
+        const previous = this.values[key];
         this.values[key] = { value, at: this.now() };
+        if ((key === 'speed' || key === 'rpm') && (!previous || previous.value !== value)) this.onMotion();
     }
 
     get(key, maxAge = DATA_MAX_AGE_MS) {
@@ -40,18 +44,20 @@ class Car {
 
     snapshot() {
         const data = {};
-        for (const key of Object.keys(this.values)) data[key] = this.get(key);
+        for (const key of Object.keys(this.values)) {
+            data[key] = this.get(key, key === 'speed' ? SPEED_MAX_AGE_MS : DATA_MAX_AGE_MS);
+        }
         return data;
     }
 
     watch(ctx) {
-        const add = (name, fields, pollMs) => ctx.signals.watch(name, '1', fields, ctx.log, {
-            pollMs, readTimeoutMs: 1000, shouldPoll: () => !ctx.ui || ctx.ui.isVisible('MAIN'),
+        const add = (name, fields, pollMs, readTimeoutMs = 1000, pollByField) => ctx.signals.watch(name, '1', fields, ctx.log, {
+            pollMs, readTimeoutMs, pollByField, shouldPoll: () => !ctx.ui || ctx.ui.isVisible('MAIN'),
         }).catch((error) => ctx.log.warn('Signal unavailable: ' + name + ' ' + error.message));
 
         add('de.bmw.infotainment.vehicle.Vehicle2', {
             statusCarSpeed2: (v) => this.put('speed', scaled(v && v.speedVehicleCentreOfGravity, 65535, 1 / 64, 0)),
-        }, 600);
+        }, 150, 350);
         add('de.bmw.infrastructure.VehicleInformation', {
             statusGearboxDrive: (v) => {
                 const x = v && v.statusActualStageDrive;
@@ -68,7 +74,7 @@ class Car {
                 this.put('coolant', scaled(v && v.temperatureEngineDrive, 255, 1, -48));
                 this.put('oil', scaled(v && v.temperatureEngineOilDrive, 255, 1, -48));
             },
-        }, 2500);
+        }, 200, 450, { statusEngineTemperature: 2500 });
         add('de.bmw.infotainment.KombiIF', {
             statusRangeTankStatus: (v) => {
                 this.put('range', scaled(v && v.range, 4095, 1, 0));

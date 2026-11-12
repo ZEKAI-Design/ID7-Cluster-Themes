@@ -88,7 +88,7 @@ function vdoPanel(canvas, data, opts = {}) {
         }
         text('VDO', cx, 106, 11, C.ink, 'center', 'bold');
         text('ODO · mi', cx, 121, 8, C.soft);
-        needle(cx, cy, 103, 225 + Math.max(0, Math.min(120, speedMph || 0)) / 120 * 270, 2.5);
+        if (speedMph !== null) needle(cx, cy, 103, 225 + Math.max(0, Math.min(120, speedMph)) / 120 * 270, 2.5);
         // Mechanical-style odometer rollers, now rendered as crisp electronic digits.
         drawCounter(cx - 51, 139, odoMiles === null ? '------' : String(odoMiles).padStart(6, '0').slice(-6));
         text('TRIP', cx, 197, 8, C.soft, 'center', 'medium');
@@ -121,8 +121,11 @@ function vdoPanel(canvas, data, opts = {}) {
         }
         text('1/min × 1000', cx, 108, 9, C.ink, 'center', 'medium');
         needle(cx, cy, 105, 225 + Math.max(0, Math.min(7000, rpm || 0)) / 7000 * 270, 2.5);
-        miniGauge(655, 242, 25, Number.isFinite(data.coolant) ? Math.max(0, Math.min(130, data.coolant)) / 130 : null, '°C');
-        miniGauge(767, 242, 25, fuelFraction, 'FUEL');
+        const coolant = Number.isFinite(data.coolant) ? data.coolant : null;
+        miniGauge(cx - 54, 242, 25, coolant === null ? null : Math.max(0, Math.min(130, coolant)) / 130,
+            'COOLANT', coolant === null ? '--' : Math.round(coolant) + '°C');
+        miniGauge(767, 242, 25, fuelFraction, 'FUEL',
+            fuelFraction === null ? '--' : Math.round(data.fuelLitres) + ' L');
         // A restrained red band echoes the original VDO rev-limit warning.
         for (let i = 0; i < 3; i++) {
             const p1 = point(cx, cy, 129 + i * 2, 225 + (65 + i * 1.7) / 70 * 270);
@@ -131,18 +134,22 @@ function vdoPanel(canvas, data, opts = {}) {
         }
     }
 
-    function miniGauge(cx, cy, radius, fraction, label) {
+    function miniGauge(cx, cy, radius, fraction, label, reading) {
         circle(cx, cy, radius + 3, '#202326');
-        circle(cx, cy, radius, '#202326');
         for (let i = 0; i <= 4; i++) {
             const a = 225 + i / 4 * 270;
             tick(cx, cy, radius - 2, radius - 7, a, 1, C.soft);
         }
-        const value = fraction === null ? 0.5 : fraction;
-        needle(cx, cy, radius - 10, 225 + value * 270, 1.2);
-        text(label, cx, cy + 15, 6, C.soft, 'center', 'medium');
-        if (label === '°C' && Number.isFinite(data.coolant)) text(Math.round(data.coolant) + '°', cx, cy + 23, 6, C.ink);
-        if (label === 'FUEL' && Number.isFinite(data.fuelLitres)) text(Math.round(data.fuelLitres) + 'L', cx, cy + 23, 6, C.ink);
+        if (fraction !== null) {
+            const angle = 225 + fraction * 270;
+            const tail = point(cx, cy, 4, angle + 180);
+            const tip = point(cx, cy, radius - 7, angle);
+            line(tail[0], tail[1], tip[0], tip[1], 1.5, C.needle);
+        }
+        circle(cx, cy, 4, '#17191b');
+        if (fraction !== null) circle(cx, cy, 2.4, C.needle);
+        text(label, cx, cy + 12, 5.5, C.soft, 'center', 'medium');
+        text(reading, cx, cy + 23, 6, C.ink);
     }
 
     function drawCentreStack() {
