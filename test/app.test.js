@@ -324,6 +324,7 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
         }
     }
     const handlers = new Map();
+    const watchInstances = new Map();
     const watchOptions = new Map();
     const click = new Map();
     const values = new Map(spec.settings.map((item) => [item.key, item.default]));
@@ -349,6 +350,7 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
         spec, app, settings, log: { warn() {} },
         signals: { watch: async (name, instance, fields, log, opts) => {
             handlers.set(name, fields);
+            watchInstances.set(name, instance);
             watchOptions.set(name, opts);
         } },
     };
@@ -389,6 +391,7 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
         const vehicle2 = 'de.bmw.infotainment.vehicle.Vehicle2';
         const cds = 'de.bmw.infotainment.vehicle.CDS';
         assert.equal(watchOptions.get(vehicle2).pollMs, 150);
+        assert.equal(watchInstances.get(vehicle2), '1');
         assert.equal(watchOptions.get(cds).pollMs, 200);
         assert.equal(watchOptions.get(cds).pollByField.statusEngineTemperature, 2500);
         handlers.get('de.bmw.infrastructure.VehicleInformation').statusGearboxDrive({ statusActualStageDrive: 'D' });
@@ -423,7 +426,9 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
         frame.targets.find((target) => target.key === 'slot:rightInner').run();
         assert.equal(background.choices.rightInner, 'media');
         const mediaInterface = 'de.bmw.infotainment.hmi.hmimediastate.HmiMediaState';
-        assert.equal(require('../apps/zekai_cluster_themes/app.json').signals[mediaInterface].playerMetadata, 'rs');
+        const mediaProxy = packagedRequire('../manifest.json').proxies[mediaInterface];
+        assert.deepEqual(mediaProxy, { instances: 'HMI_CID', attributes: { playerMetadata: 'rs' } });
+        assert.equal(watchInstances.get(mediaInterface), mediaProxy.instances);
         const receiveMedia = handlers.get(mediaInterface).playerMetadata;
         receiveMedia({ sink: 'FRONT', firstLineType: 1, firstLineText: 'Front Artist',
             secondLineType: 'TITLE', secondLineText: 'First Song' });

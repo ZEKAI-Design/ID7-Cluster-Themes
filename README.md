@@ -1,8 +1,8 @@
 # ID7 Cluster Themes for BMW G05
 
-0.8.6 面向 2019 BMW X5 xDrive40i（G05、iDrive 7、12.3 英寸仪表）。MGU 平台启动时会自动启动已启用的主题，主题在中控页面离开后继续显示，直到选择 **BMW original**。车机关闭时后台进程随平台停止；下次启动时按保存的开关状态和主题恢复。仪表覆盖层和绘制画布均为 1920×720。Five Dial 等比例铺开至约 98% 的可绘宽度，左右保留约 18 像素，圆表保持圆形。中控页使用示例数据；仪表使用实时车况信号，缺失读数显示 `--`。
+0.8.7 面向 2019 BMW X5 xDrive40i（G05、iDrive 7、12.3 英寸仪表）。MGU 平台启动时会自动启动已启用的主题，主题在中控页面离开后继续显示，直到选择 **BMW original**。车机关闭时后台进程随平台停止；下次启动时按保存的开关状态和主题恢复。仪表覆盖层和绘制画布均为 1920×720。Five Dial 等比例铺开至约 98% 的可绘宽度，左右保留约 18 像素，圆表保持圆形。中控页使用示例数据；仪表使用实时车况信号，缺失读数显示 `--`。
 
-本 App 使用 `cluster-render` 在仪表上绘制全屏覆盖层，不会刷写或替换 BMW 仪表 ECU。0.8.6 尚未在行驶中完成实车验证，BMW 原厂告警层与自定义覆盖层的优先级也需在车上确认；如果原厂告警或任何关键读数被遮挡，请选择 **BMW original**。
+本 App 使用 `cluster-render` 在仪表上绘制全屏覆盖层，不会刷写或替换 BMW 仪表 ECU。0.8.7 尚未在行驶中完成实车验证，BMW 原厂告警层与自定义覆盖层的优先级也需在车上确认；如果原厂告警或任何关键读数被遮挡，请选择 **BMW original**。
 
 ## 车机预览
 
@@ -15,7 +15,7 @@
 - **Five Dial** 的 **Face colour** 有原版深蓝、石板蓝、青绿、紫红、中央红环五套配色。**Digital speed** 可选 **Centre** 或 **Lower**。低位模式把数字车速放到指针轴下方，并显示从圆心出发的转速长针。两项设置独立保存，也可从中控预览左侧的快捷卡片切换。续航弧线按当前公里数与 **Full range for arc** 的比例填充，默认满刻度 800 km。
 - 在车机的 **Settings → Start selected theme at boot** 中启用自动启动，然后用 **Enable selected theme** 显示所选主题。选择 **BMW original** 会关闭覆盖层并记住此状态；再次启用即可恢复。渲染器断开或画面绘制失败后，客户端会尝试重连并恢复已选主题。面板被其他图层临时占用时等待渲染器释放，日志记录面板状态和错误原因。
 - Waze 圆内窗口需要支持 Cluster Layouts 窗口交接的 Waze on Cluster，例如 [eroobeeroo 版 0.9.107 或更新版本](https://github.com/eroobeeroo/idrive7-cluster-info/tree/main/apps/cluster_layouts)。Waze 还需开启 Cluster 输出。标准居中地图版本会显示你选的备用内容。地图流停止、断开或窗口被另一个 App 占用时也使用备用内容。
-- **Now playing** 从 BMW `HmiMediaState` 读取前排播放的曲名和艺人。CarPlay 是否提供信息取决于车机和播放来源。中控预览使用示例封面，仪表媒体栏使用音乐图标。
+- **Now playing** 从 BMW `HmiMediaState` 的 `HMI_CID` 实例读取前排播放的曲名和艺人。CarPlay 是否提供信息取决于车机和播放来源。中控预览使用示例封面，仪表媒体栏使用音乐图标。
 
 - G 值选项已删除。旧圆盘选项中的 G 值改为胎压；Waze 的旧 G 值备用选项改为油温和水温。
 
