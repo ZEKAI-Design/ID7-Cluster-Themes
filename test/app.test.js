@@ -251,6 +251,63 @@ test('all custom instruments use the bundled Hanken Grotesk weights', () => {
     assert.equal(new Set('0123456789'.split('').map((digit) => digits[digit.charCodeAt(0)][6])).size, 1);
 });
 
+test('live dial face cache matches a fresh render as readings and themes change', () => {
+    const artifact = path.resolve(__dirname, '../dist/zekai_cluster_themes/source/javascript');
+    const { renderPanelFrame } = require(path.join(artifact, 'panel-frame'));
+    const canvas = new Canvas(PANEL_WIDTH, PANEL_HEIGHT);
+    const cache = {};
+    const faces = [
+        ['five', { rightInner: 'media', faceColour: 'red' }],
+        ['five', { rightInner: 'media', faceColour: 'navy', speedPosition: 'lower' }],
+        ['silver', { rightInner: 'media' }],
+        ['vdoRetro', {}],
+    ];
+    for (const [theme, choices] of faces) {
+        let face;
+        for (const speed of [42, 78]) {
+            const data = { speed, rpm: 1900 + speed * 5, fuelLitres: 32, range: 420, coolant: 91,
+                media: { title: 'Test song at ' + speed, artist: 'Test artist' } };
+            const live = renderPanelFrame(theme, choices, data, false, canvas, cache);
+            const fresh = renderPanelFrame(theme, choices, data);
+            assert.equal(Buffer.compare(live.d, fresh.d), 0);
+            if (face) assert.equal(cache.pixels, face);
+            face = cache.pixels;
+        }
+    }
+});
+
+test('distant changes in one band send small rectangles and reconstruct the complete frame', () => {
+    const artifact = path.resolve(__dirname, '../dist/zekai_cluster_themes/source/javascript');
+    const { sendPanelFrame } = require(path.join(artifact, 'panel-frame'));
+    const previous = new Canvas(PANEL_WIDTH, PANEL_HEIGHT);
+    const current = new Canvas(PANEL_WIDTH, PANEL_HEIGHT);
+    previous.clear('#030507');
+    current.d.set(previous.d);
+    current.fillRect(110, 52, 25, 20, '#eeeeee');
+    current.fillRect(900, 61, 30, 10, '#eeeeee');
+    current.fillRect(1500, 58, 20, 18, '#eeeeee');
+    let sent = false;
+    const client = { pixels(ref, rects, data) {
+        sent = true;
+        assert.equal(rects.length, 3);
+        assert.equal(data.length, (25 * 20 + 30 * 10 + 20 * 18) * 4);
+        let offset = 0;
+        for (const { x, y, w, h } of rects) {
+            for (let row = y; row < y + h; row++) {
+                previous.d.set(data.subarray(offset, offset + w * 4), (row * PANEL_WIDTH + x) * 4);
+                offset += w * 4;
+            }
+        }
+        return true;
+    } };
+    assert.equal(sendPanelFrame(client, 1, current, previous), true);
+    assert.equal(sent, true);
+    assert.equal(Buffer.compare(previous.d, current.d), 0);
+    sent = false;
+    assert.equal(sendPanelFrame(client, 1, current, previous), true);
+    assert.equal(sent, false);
+});
+
 test('packaged theme starts without the UI, fills the panel and remembers manual shutdown', () => {
     const vm = require('node:vm');
     const artifact = path.resolve(__dirname, '../dist/zekai_cluster_themes/source/javascript');
@@ -365,6 +422,25 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
         assert.equal(background.choices.rightInner, 'fuelRange');
         frame.targets.find((target) => target.key === 'slot:rightInner').run();
         assert.equal(background.choices.rightInner, 'media');
+        const mediaInterface = 'de.bmw.infotainment.hmi.hmimediastate.HmiMediaState';
+        assert.equal(require('../apps/zekai_cluster_themes/app.json').signals[mediaInterface].playerMetadata, 'rs');
+        const receiveMedia = handlers.get(mediaInterface).playerMetadata;
+        receiveMedia({ sink: 'FRONT', firstLineType: 1, firstLineText: 'Front Artist',
+            secondLineType: 'TITLE', secondLineText: 'First Song' });
+        receiveMedia({ sink: 1, firstLineType: 'TITLE', firstLineText: 'Rear Song' });
+        now += 100;
+        interval();
+        assert.deepEqual(JSON.parse(background.lastFrame)[2].media, { title: 'First Song', artist: 'Front Artist' });
+        const firstSongPixels = background.lastPixels.d.slice();
+        receiveMedia({ sink: 0, threeRowText: 'Second Song\nSecond Artist' });
+        now += 100;
+        interval();
+        assert.deepEqual(JSON.parse(background.lastFrame)[2].media, { title: 'Second Song', artist: 'Second Artist' });
+        assert.equal(Buffer.compare(firstSongPixels, background.lastPixels.d) === 0, false);
+        receiveMedia({ sink: 'FRONT' });
+        now += 100;
+        interval();
+        assert.equal(JSON.parse(background.lastFrame)[2].media, null);
         frame.targets.find((target) => target.key === 'theme:vdoRetro').run();
         onVisible('MAIN', false);
         assert.equal(renderer.connected, true);
