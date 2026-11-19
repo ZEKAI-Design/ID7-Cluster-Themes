@@ -199,6 +199,7 @@ class ClusterService extends EventEmitter {
         if (now - this.lastDrawAt < DRAW_INTERVAL_MS) return;
         try {
             const data = this.car.snapshot();
+            if (this.theme === 'vdoRetro') data.turnLamp = this.car.turnIndicator.lit(now);
             // The speed text uses whole km/h. Avoid repainting the panel for
             // fluctuations that do not change the displayed reading.
             if (this.theme !== 'vdoRetro' && Number.isFinite(data.speed)) data.speed = Math.round(data.speed);

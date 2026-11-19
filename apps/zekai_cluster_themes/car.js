@@ -1,5 +1,7 @@
 'use strict';
 
+const { TurnIndicator } = require('./turn-indicator');
+
 const DATA_MAX_AGE_MS = 12000;
 const SPEED_MAX_AGE_MS = 1500;
 const PRESSURE_UNITS = { 1: 'bar', 2: 'kPa', 3: 'psi', BAR: 'bar', KPA: 'kPa', PSI: 'psi' };
@@ -66,6 +68,7 @@ class Car {
         this.now = now;
         this.onMotion = onMotion;
         this.values = Object.create(null);
+        this.turnIndicator = new TurnIndicator(now);
     }
 
     put(key, value) {
@@ -133,6 +136,11 @@ class Car {
         add('de.bmw.infrastructure.EnvironmentalInformation', {
             ExteriorTemperature: (v) => this.put('ambient', scaled(v && v.temperatureExterior, 255, 0.5, -40)),
         }, 4500);
+        add('de.bmw.body.Light', {
+            Indicators: (v) => this.turnIndicator.instrumentStatus(v),
+            StatusFunctionsIndicators: (v) => this.turnIndicator.lightFunction(v),
+            StatusFunctionsIndicators2: (v) => this.turnIndicator.lightFunction(v),
+        }, 0, { onUnavailable: () => this.turnIndicator.reset() });
         add('de.bmw.infotainment.vehicle.Vehicle', {
             statusNewCurrentUnitsStatusExt: (v) => this.put('pressureUnit', PRESSURE_UNITS[v && v.unitOfMeasurementAirPressure] || null),
         }, 4500);

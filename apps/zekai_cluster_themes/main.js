@@ -1,7 +1,6 @@
 'use strict';
 
 const mgu = require('./kit/mgu');
-const { Canvas } = require('./kit/canvas');
 const { ClusterService } = require('./cluster-service');
 const { panel, SLOTS, SILVER_SLOTS, NAMES, DEMO, PALETTES } = require('./dials');
 const { SILVER_PALETTES, updateSilverTrail } = require('./silver-dials');
@@ -13,7 +12,16 @@ const { clusterClock } = require('./cluster-clock');
 const THEMES = [['stock', 'BMW original'], ['five', 'Porsche'], ['silver', 'Rolls Royce'], ['digital', 'Digital'], ['wazeFull', 'Waze Full Map'], ['vdoRetro', 'VW 2000']];
 const SLOT_LABELS = ['Left outer', 'Left inner', 'Right inner', 'Right outer'];
 
+function settingSwatch(key, value) {
+    if (key === 'silver_faceColour') return SILVER_PALETTES[value].rim;
+    if (key === 'five_faceColour') {
+        const palette = PALETTES[value];
+        return palette.centreRing || (palette.centreFace || [])[2] || palette.ring;
+    }
+}
+
 mgu.run({
+    settingSwatch,
     background(context) {
         return new ClusterService(context);
     },
@@ -63,6 +71,10 @@ mgu.run({
             if (!starlight) previewTrail = null;
             const cv = ctx.canvas(1600, 520);
             const label = (str, x, y, size, color = '#e9f1ff') => cv.text(str, x, y, size, color, { literal: true });
+            const chevron = (x, y) => {
+                cv.line(x, y - 5, x + 5, y, 1.5, '#a9bed7');
+                cv.line(x + 5, y, x, y + 5, 1.5, '#a9bed7');
+            };
             cv.fillRect(0, 0, 1600, 520, '#0b1018');
             cv.roundRect(16, 18, 304, 478, 16, '#161f2e');
             label('THEMES', 40, 61, 24, '#a9ccf1');
@@ -72,22 +84,22 @@ mgu.run({
                 label(title, 57, y + 22, 18);
                 cv.target(38, y, 260, 31, () => settings.set('instrumentTheme', id), 'theme:' + id, 9);
             });
-            const appearanceCard = (key, title, value, y, swatch) => {
+            const appearanceCard = (key, title, value, y) => {
                 const labelText = settings.item(key).options.find(([id]) => id === value)[1];
                 cv.roundRect(38, y, 260, 52, 9, '#202b3a');
                 label(title, 52, y + 19, 14, '#b4c2d6');
-                label(labelText, 52, y + 44, 23);
-                if (swatch) cv.circle(274, y + 28, 9, swatch);
-                cv.target(38, y, 260, 52, () => settings.cycle(key), key, 9);
+                label(labelText, 52, y + 43, 21);
+                const swatch = settingSwatch(key, value);
+                if (swatch) cv.circle(256, y + 28, 8, swatch);
+                chevron(279, y + 28);
+                cv.target(38, y, 260, 52, () => ctx.openSetting(key), key, 9);
             };
             if (theme === 'silver') {
-                appearanceCard('silver_faceColour', 'FACE COLOUR', slots.faceColour, 306, SILVER_PALETTES[slots.faceColour].rim);
+                appearanceCard('silver_faceColour', 'FACE COLOUR', slots.faceColour, 306);
                 appearanceCard('silver_needleEffect', 'NEEDLE EFFECT', slots.needleEffect, 364);
             }
             if (theme === 'five') {
-                const palette = PALETTES[slots.faceColour];
-                appearanceCard('five_faceColour', 'FACE COLOUR', slots.faceColour, 306,
-                    palette.centreRing || (palette.centreFace || [])[2] || palette.ring);
+                appearanceCard('five_faceColour', 'FACE COLOUR', slots.faceColour, 306);
                 appearanceCard('five_speedPosition', 'DIGITAL SPEED', slots.speedPosition, 364);
                 cv.roundRect(38, 418, 260, 34, 7, '#202b3a');
                 label('Restore Porsche layout', 52, 441, 18);
@@ -150,7 +162,8 @@ mgu.run({
                 label(title, x + 13, 407, 17, '#b4c2d6');
                 label(value, x + 13, 435, 23);
                 if (!['stock', 'wazeFull', 'vdoRetro'].includes(theme) && key) {
-                    cv.target(x, 387, column - 11, 62, () => settings.cycle(theme + '_' + key), 'slot:' + key, 9);
+                    chevron(x + column - 35, 418);
+                    cv.target(x, 387, column - 11, 62, () => ctx.openSetting(theme + '_' + key), 'slot:' + key, 9);
                 }
             });
             label(status, 361, 480, 22, '#a9ccf1');

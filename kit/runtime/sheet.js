@@ -107,9 +107,38 @@ function values(s) {
     return null;
 }
 
-/** opts: { version } (the app's, shown at the settings' top) */
+function optionGrid(r, t, rows, focus, controller, y0) {
+    const gap = 12, left = 40;
+    const w = (W - left * 2 - gap) / 2;
+    const lines = Math.ceil(rows.length / 2);
+    const h = Math.min(77, (BOTTOM - y0 - (lines - 1) * gap) / lines);
+    const selected = t.sel || t.accent;
+    return rows.map((row, i) => {
+        const x = left + i % 2 * (w + gap);
+        const y = y0 + Math.floor(i / 2) * (h + gap);
+        const cy = y + h / 2;
+        const focused = controller && focus === i;
+        const marked = row.on || focused;
+        r.roundRect(x, y, w, h, 12, withAlpha(marked ? selected : '#ffffff', marked ? 0.16 : 0.07));
+        if (marked) r.strokeRoundRect(x, y, w, h, 12, focused ? 2.5 : 1.5, withAlpha(selected, focused ? 1 : 0.75));
+        if (row.swatch) {
+            r.circle(x + 29, cy, 13, row.swatch);
+            r.strokeRoundRect(x + 16, cy - 13, 26, 26, 13, 1, withAlpha('#ffffff', 0.25));
+        }
+        const labelX = x + (row.swatch ? 56 : 22);
+        r.text(fit(r, row.label, 27, x + w - 68 - labelX), labelX, cy + 9, 27, t.text);
+        r.circle(x + w - 31, cy, 11, row.on ? selected : withAlpha('#ffffff', 0.34));
+        r.circle(x + w - 31, cy, row.on ? 4 : 8.5, row.on ? '#ffffff' : t.bg);
+        return { i, x, y, w, h };
+    });
+}
+
+/** opts: { version, setting (direct choice), swatch (key, value) } */
 function listSheet(settings, title, opts) {
     const version = opts && opts.version;
+    const direct = opts && opts.setting;
+    const swatch = opts && opts.swatch;
+    const selectedIndex = (s) => Math.max(0, values(s).findIndex(([value]) => value === settings.get(s.key)));
     // the settings offered now (settings.shown: "hidden", "when"); those with one "group" are one row that
     // opens their own list ({ group, items })
     const offered = () => (settings.shown ? settings.schema.filter((s) => settings.shown(s)) : settings.schema.filter((s) => !s.hidden));
@@ -124,13 +153,15 @@ function listSheet(settings, title, opts) {
     };
     const sh = {
         title: title || 'Settings',
-        focus: 0, open: null, sub: 0,        // open: the setting whose values are listed
+        focus: 0, open: direct || null, sub: direct ? selectedIndex(direct) : 0,
         group: null, gfocus: 0,              // group: the group whose settings are listed (focus kept in gfocus)
         controller: false,                  // the controller was used: show where it is
         rows() {
             if (this.open) {
                 const cur = settings.get(this.open.key);
-                return values(this.open).map((v) => ({ label: v[1], kind: 'radio', on: v[0] === cur }));
+                return values(this.open).map(([value, label]) => ({
+                    label, kind: 'radio', on: value === cur, swatch: swatch && swatch(this.open.key, value),
+                }));
             }
             return entries(this.group).map((s) => (s.group && !s.key ? { label: s.group, kind: 'more' }
                 : s.type === 'bool' ? { label: s.label, kind: 'toggle', on: !!settings.get(s.key) }
@@ -150,7 +181,9 @@ function listSheet(settings, title, opts) {
             // (the controller reaches it turning up from the first row: place -1)
             pill(r, t, bx, by, bw, 46, this.open || this.group ? 'Back' : 'Done', this.controller && (this.open ? this.sub : this.focus) === -1);
             targets.push({ x: bx - 10, y: by - 6, w: bw + 20, h: 58, act: () => this.back() });
-            const rects = list(r, t, this.key(), rows, this.open ? this.sub : this.focus, TOP + 74, this.controller);
+            const rects = this.open && this.open.type === 'choice' && rows.length >= 6 && rows.length <= 14
+                ? optionGrid(r, t, rows, this.sub, this.controller, TOP + 74)
+                : list(r, t, this.key(), rows, this.open ? this.sub : this.focus, TOP + 74, this.controller);
             rects.forEach((q) => targets.push(Object.assign(q, { act: () => { if (this.open) this.sub = q.i; else this.focus = q.i; return this.choose(); } })));
             return targets;
         },
@@ -178,6 +211,7 @@ function listSheet(settings, title, opts) {
             if (this.open) {
                 const v = values(this.open)[this.sub];
                 if (v && v[0] !== settings.get(this.open.key)) settings.set(this.open.key, v[0]);
+                if (direct) return 'close';
                 this.open = null;
                 return null;
             }
@@ -187,11 +221,12 @@ function listSheet(settings, title, opts) {
             if (s.type === 'bool') settings.set(s.key, !settings.get(s.key));
             else if (values(s)) {
                 this.open = s;
-                this.sub = Math.max(0, values(s).findIndex((v) => v[0] === settings.get(s.key)));
+                this.sub = selectedIndex(s);
             } else settings.cycle(s.key);
             return null;
         },
         back() {
+            if (direct) return 'close';
             if (this.open) { this.open = null; return null; }
             if (this.group) { this.group = null; this.focus = this.gfocus; return null; }
             return 'close';

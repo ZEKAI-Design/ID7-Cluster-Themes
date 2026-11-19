@@ -455,7 +455,7 @@ class Widget {
 }
 
 /* ---------------- generic settings screen ---------------- */
-function wireSettings(ctx) {
+function wireSettings(ctx, swatch) {
     const { ui, settings } = ctx;
     // hidden settings (kept by the app itself, never on a screen) have no component to look up
     const schema = settings.schema.filter((s) => !s.hidden);
@@ -487,15 +487,18 @@ function wireSettings(ctx) {
     // else the HMI's settings screen. The HMI's screen shows the values chosen in either.
     settings.onChange(() => { if (!ctx.display.sheet) refresh(); });
     if (ui.comp('BTN_SETTINGS')) {
-        ui.onClick('BTN_SETTINGS', () => {
+        const open = (key) => {
             const d = ctx.display;
-            if (d.sheet && d.sheet.settings) { d.closeSheet(); return null; }
-            const sh = listSheet(settings, null, { version: SPEC.version });
+            if (!key && d.sheet && d.sheet.settings) { d.closeSheet(); return null; }
+            const setting = key && settings.item(key);
+            const sh = listSheet(settings, null, { version: SPEC.version, setting, swatch });
             sh.settings = true;
             sh.onClose = () => refresh();
             if (d.openSheet(sh)) return null;
             return refresh().then(() => ui.open('SETTINGS'));
-        });
+        };
+        ctx.openSetting = open;
+        ui.onClick('BTN_SETTINGS', () => open());
     }
     return refresh();
 }
@@ -741,7 +744,7 @@ async function runInner(impl) {
         .concat(SPEC.settings && SPEC.settings.length ? [{ name: 'SETTINGS' }] : [])
         .map((s) => ui.comp(s.name)).filter((st) => st && st.updateResources)
         .map((st) => st.updateResources())), 4000);
-    await step('settings screen', wireSettings(ctx), 3000);
+    await step('settings screen', wireSettings(ctx, impl && impl.settingSwatch), 3000);
     if (impl && impl.start) await step('app start', Promise.resolve().then(() => impl.start(ctx)), 5000);
     await app.initialized();
     log.info('initialized (start reason ' + app.startReason + ')');

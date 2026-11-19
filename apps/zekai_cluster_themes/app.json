@@ -2,7 +2,7 @@
   "id": "zekai_cluster_themes",
   "title": "ID7 Cluster Themes",
   "vendor": "ZEKAI Design",
-  "version": "0.8.9",
+  "version": "0.8.10",
   "loggingId": "ZCT1",
   "description": "Persistent, auto-starting instrument themes for BMW iDrive 7. Choose a theme in the app; select BMW original to turn the overlay off.",
   "autostart": true,
@@ -61,6 +61,12 @@
     "de.bmw.infrastructure.EnvironmentalInformation": {
       "ExteriorTemperature": "s",
       "_optional": "Outside temperature"
+    },
+    "de.bmw.body.Light": {
+      "Indicators": "s",
+      "StatusFunctionsIndicators": "s",
+      "StatusFunctionsIndicators2": "s",
+      "_optional": "VW 2000 turn indicator"
     },
     "de.bmw.infotainment.hmi.hmimediastate.HmiMediaState": {
       "_instances": "HMI_CID",
@@ -122,6 +128,7 @@
     {
       "key": "clockZone",
       "label": "Clock / Time zone",
+      "group": "Clock",
       "type": "choice",
       "default": "bc",
       "options": [
@@ -150,6 +157,7 @@
     {
       "key": "clockOffset",
       "label": "Clock / UTC offset",
+      "group": "Clock",
       "type": "number",
       "default": -7,
       "unit": "h",
@@ -161,6 +169,7 @@
     {
       "key": "clockCorrection",
       "label": "Clock / Minute correction",
+      "group": "Clock",
       "type": "number",
       "default": 0,
       "unit": "min",
@@ -169,6 +178,7 @@
     {
       "key": "clockFormat",
       "label": "Clock / Time format",
+      "group": "Clock",
       "type": "choice",
       "default": "24",
       "options": [

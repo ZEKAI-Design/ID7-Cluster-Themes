@@ -629,6 +629,8 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
     const spec = packagedRequire('./kit/app-spec.json');
     assert.equal(packagedRequire('../package.json').mguAppStartType, 'autostart');
     const { renderPanelFrame } = packagedRequire('./panel-frame');
+    const { listSheet } = packagedRequire('./kit/sheet');
+    const sheetTheme = packagedRequire('./kit/themes').theme();
     for (const theme of ['five', 'silver']) {
         const side = 'rightInner';
         for (const kind of ['media', 'waze']) {
@@ -646,17 +648,14 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
     const renderers = [];
     const process = new EventEmitter();
     const app = new EventEmitter();
-    let now = Date.now();
+    let now = Date.UTC(2026, 10, 19, 8, 17, 12);
     class TestDate extends Date { static now() { return now; } }
     let frame, onVisible, previewTick, interval, motion, impl, background;
     const settings = {
+        schema: spec.settings,
         get: (key) => values.get(key),
         item: (key) => spec.settings.find((item) => item.key === key),
         set(key, value) { values.set(key, value); listeners.forEach((fn) => fn()); },
-        cycle(key) {
-            const options = this.item(key).options.map(([value]) => value);
-            this.set(key, options[(options.indexOf(this.get(key)) + 1) % options.length]);
-        },
         onChange(fn) { listeners.push(fn); },
     };
     const bgContext = {
@@ -725,6 +724,44 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
         assert.equal(renderer.frames, 3);
         assert.equal(JSON.parse(background.lastFrame)[2].speed, 77);
         assert.equal(JSON.parse(background.lastFrame)[2].rpm, 2100);
+        const lightInterface = 'de.bmw.body.Light';
+        const light = handlers.get(lightInterface);
+        const lightProxy = packagedRequire('../manifest.json').proxies[lightInterface];
+        assert.equal(watchInstances.get(lightInterface), lightProxy.instances);
+        assert.equal(lightProxy.attributes.Indicators, 's');
+        const darkLens = background.lastPixels.d.slice();
+        light.Indicators({ statusIndicateDirection: 'BLINKER_LINKS_EIN', frequencyIndicateDirection: 1 });
+        now += 50;
+        interval();
+        assert.equal(JSON.parse(background.lastFrame)[2].turnLamp, true);
+        assert.ok(renderer.bytes < 10000);
+        const litLens = background.lastPixels.d.slice();
+        assert.notDeepEqual(litLens, darkLens);
+        now += 330;
+        light.Indicators({ statusIndicateDirection: 'BLINKER_LINKS_EIN', frequencyIndicateDirection: 1 });
+        interval();
+        assert.equal(JSON.parse(background.lastFrame)[2].turnLamp, false);
+        assert.deepEqual(background.lastPixels.d, darkLens);
+        light.Indicators({ statusIndicateDirection: 2, frequencyIndicateDirection: 1 });
+        now += 50;
+        interval();
+        assert.deepEqual(background.lastPixels.d, litLens);
+        light.Indicators({ statusIndicateDirection: 3, frequencyIndicateDirection: 1,
+            statusIndicateDirectionInstrumentPack: 'BLINKERKONTROLL_MINUS_LAMPEN_IM_KOMBI_AUS' });
+        now += 50;
+        interval();
+        assert.equal(JSON.parse(background.lastFrame)[2].turnLamp, false);
+        watchOptions.get(lightInterface).onUnavailable();
+        light.StatusFunctionsIndicators2({ controlIndicateDirection: 'BEIDSEITIGES_BLINKEN_EIN' });
+        now += 50;
+        interval();
+        assert.deepEqual(background.lastPixels.d, litLens);
+        light.StatusFunctionsIndicators2({ controlIndicateDirection: 'BLINKEN_AUS' });
+        now += 50;
+        interval();
+        assert.equal(JSON.parse(background.lastFrame)[2].turnLamp, false);
+
+        let picker;
         impl.start({
             settings, background,
             ui: {
@@ -734,19 +771,30 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
             },
             loop: (page, fps, render) => { previewTick = render; return { kick: render }; },
             onLayout() {},
+            openSetting: (key) => { picker = listSheet(settings, null, { setting: settings.item(key), swatch: impl.settingSwatch }); },
             canvas: (width, height) => new Recorder(width, height),
         });
+        function select(target, key, value) {
+            const saved = settings.get(key);
+            frame.targets.find((item) => item.key === target).run();
+            assert.equal(settings.get(key), saved);
+            assert.equal(picker.open.key, key);
+            const targets = picker.draw(new Recorder(1600, 520), sheetTheme);
+            assert.equal(targets.length, settings.item(key).options.length + 1);
+            const index = settings.item(key).options.findIndex(([id]) => id === value);
+            assert.equal(targets[index + 1].act(), 'close');
+            assert.equal(settings.get(key), value);
+        }
         assert.ok(frame.targets.some((target) => target.key === 'theme:vdoRetro'));
         frame.targets.find((target) => target.key === 'theme:silver').run();
         assert.equal(background.choices.faceColour, 'silver');
-        frame.targets.find((target) => target.key === 'silver_faceColour').run();
+        select('silver_faceColour', 'silver_faceColour', 'amethyst');
         assert.equal(background.choices.faceColour, 'amethyst');
         now += 50;
         interval();
         assert.equal(JSON.parse(background.lastFrame)[1].faceColour, 'amethyst');
-        const effect = frame.targets.find((target) => target.key === 'silver_needleEffect');
         assert.equal(background.choices.needleEffect, 'classic');
-        effect.run();
+        select('silver_needleEffect', 'silver_needleEffect', 'starlight');
         assert.equal(background.choices.needleEffect, 'starlight');
         const previewWords = frame.words().slice();
         now += 125;
@@ -768,17 +816,17 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
         now += 50;
         interval();
         assert.equal(renderer.frames, settledFrame);
-        effect.run();
+        select('silver_needleEffect', 'silver_needleEffect', 'classic');
         assert.equal(background.choices.needleEffect, 'classic');
 
         assert.equal(background.choices.leftInner, 'rpm');
         assert.equal(background.choices.rightInner, 'fuelRange');
         const defaultRollsDials = { ...background.choices };
-        frame.targets.find((target) => target.key === 'slot:leftInner').run();
+        select('slot:leftInner', 'silver_leftInner', 'media');
         assert.equal(background.choices.leftInner, 'media');
         assert.deepEqual({ ...background.choices, leftInner: 'rpm' }, defaultRollsDials);
         settings.set('silver_leftInner', 'rpm');
-        frame.targets.find((target) => target.key === 'slot:rightInner').run();
+        select('slot:rightInner', 'silver_rightInner', 'media');
         assert.equal(background.choices.rightInner, 'media');
         assert.deepEqual({ ...background.choices, rightInner: 'fuelRange' }, defaultRollsDials);
         const mediaInterface = 'de.bmw.infotainment.hmi.hmimediastate.HmiMediaState';
@@ -820,6 +868,15 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
         const themes = new Map(spec.settings.find((item) => item.key === 'instrumentTheme').options);
         assert.deepEqual(['five', 'silver', 'vdoRetro'].map((id) => themes.get(id)), ['Porsche', 'Rolls Royce', 'VW 2000']);
         frame.targets.find((target) => target.key === 'theme:five').run();
+        frame.targets.find((target) => target.key === 'five_faceColour').run();
+        assert.equal(settings.get('five_faceColour'), 'navy');
+        picker.move(7);
+        assert.equal(picker.press(), 'close');
+        assert.equal(settings.get('five_faceColour'), 'blueRing');
+        frame.targets.find((target) => target.key === 'five_faceColour').run();
+        picker.move(-1);
+        assert.equal(picker.back(), 'close');
+        assert.equal(settings.get('five_faceColour'), 'blueRing');
         settings.set('five_leftOuter', 'clock');
         settings.set('five_speedPosition', 'centre');
         frame.targets.find((target) => target.key === 'porsche:restoreLayout').run();
@@ -827,8 +884,8 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
         assert.equal(background.choices.speedPosition, 'lower');
         for (const slot of SLOTS) {
             const prior = { ...background.choices };
-            frame.targets.find((target) => target.key === 'slot:' + slot).run();
-            assert.notEqual(background.choices[slot], prior[slot]);
+            select('slot:' + slot, 'five_' + slot, 'none');
+            assert.equal(background.choices[slot], 'none');
             assert.deepEqual({ ...background.choices, [slot]: prior[slot] }, prior);
         }
         frame.targets.find((target) => target.key === 'theme:vdoRetro').run();
