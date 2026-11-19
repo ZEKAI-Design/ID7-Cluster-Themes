@@ -728,9 +728,10 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
         const light = handlers.get(lightInterface);
         const lightProxy = packagedRequire('../manifest.json').proxies[lightInterface];
         assert.equal(watchInstances.get(lightInterface), lightProxy.instances);
-        assert.equal(lightProxy.attributes.Indicators, 's');
+        assert.deepEqual(lightProxy.attributes, { StatusFunctionsIndicators: 's', StatusFunctionsIndicators2: 's' });
+        assert.deepEqual(Object.keys(light).sort(), Object.keys(lightProxy.attributes).sort());
         const darkLens = background.lastPixels.d.slice();
-        light.Indicators({ statusIndicateDirection: 'BLINKER_LINKS_EIN', frequencyIndicateDirection: 1 });
+        light.StatusFunctionsIndicators({ controlIndicateDirection: 'DAUER_BLINKEN_LINKS_EIN', activeFunctionIndicateDirection: 'DAUERBLINKEN_LINKS' });
         now += 50;
         interval();
         assert.equal(JSON.parse(background.lastFrame)[2].turnLamp, true);
@@ -738,20 +739,18 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
         const litLens = background.lastPixels.d.slice();
         assert.notDeepEqual(litLens, darkLens);
         now += 330;
-        light.Indicators({ statusIndicateDirection: 'BLINKER_LINKS_EIN', frequencyIndicateDirection: 1 });
+        light.StatusFunctionsIndicators2({ controlIndicateDirection: 3 });
         interval();
         assert.equal(JSON.parse(background.lastFrame)[2].turnLamp, false);
         assert.deepEqual(background.lastPixels.d, darkLens);
-        light.Indicators({ statusIndicateDirection: 2, frequencyIndicateDirection: 1 });
+        light.StatusFunctionsIndicators2({ controlIndicateDirection: 0, activeFunctionIndicateDirection: 8 });
         now += 50;
         interval();
         assert.deepEqual(background.lastPixels.d, litLens);
-        light.Indicators({ statusIndicateDirection: 3, frequencyIndicateDirection: 1,
-            statusIndicateDirectionInstrumentPack: 'BLINKERKONTROLL_MINUS_LAMPEN_IM_KOMBI_AUS' });
+        watchOptions.get(lightInterface).onUnavailable();
         now += 50;
         interval();
         assert.equal(JSON.parse(background.lastFrame)[2].turnLamp, false);
-        watchOptions.get(lightInterface).onUnavailable();
         light.StatusFunctionsIndicators2({ controlIndicateDirection: 'BEIDSEITIGES_BLINKEN_EIN' });
         now += 50;
         interval();

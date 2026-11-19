@@ -137,7 +137,6 @@ class Car {
             ExteriorTemperature: (v) => this.put('ambient', scaled(v && v.temperatureExterior, 255, 0.5, -40)),
         }, 4500);
         add('de.bmw.body.Light', {
-            Indicators: (v) => this.turnIndicator.instrumentStatus(v),
             StatusFunctionsIndicators: (v) => this.turnIndicator.lightFunction(v),
             StatusFunctionsIndicators2: (v) => this.turnIndicator.lightFunction(v),
         }, 0, { onUnavailable: () => this.turnIndicator.reset() });

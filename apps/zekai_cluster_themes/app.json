@@ -2,7 +2,7 @@
   "id": "zekai_cluster_themes",
   "title": "ID7 Cluster Themes",
   "vendor": "ZEKAI Design",
-  "version": "0.8.10",
+  "version": "0.8.11",
   "loggingId": "ZCT1",
   "description": "Persistent, auto-starting instrument themes for BMW iDrive 7. Choose a theme in the app; select BMW original to turn the overlay off.",
   "autostart": true,
@@ -63,7 +63,6 @@
       "_optional": "Outside temperature"
     },
     "de.bmw.body.Light": {
-      "Indicators": "s",
       "StatusFunctionsIndicators": "s",
       "StatusFunctionsIndicators2": "s",
       "_optional": "VW 2000 turn indicator"
