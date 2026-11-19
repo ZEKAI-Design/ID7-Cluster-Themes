@@ -7,14 +7,13 @@ const { MapWindow } = require('./map-window');
 const { SLOTS, SILVER_SLOTS } = require('./dials');
 const { PANEL_WIDTH, PANEL_HEIGHT } = require('./panel-layout');
 const { renderPanelFrame, sendPanelFrame } = require('./panel-frame');
+const { updateSilverTrail } = require('./silver-dials');
+const { clusterClock } = require('./cluster-clock');
+const { EngineReadings } = require('./engine-readings');
 
-const DRAW_INTERVAL_MS = 100;
-const PANEL_FPS = 10;
+const DRAW_INTERVAL_MS = 50;
+const PANEL_FPS = 20;
 const RECOVERY_DELAYS_MS = [2000, 5000, 10000, 20000, 30000];
-
-function localTime() {
-    return new Date().toTimeString().slice(0, 5);
-}
 
 class ClusterService extends EventEmitter {
     constructor(context) {
@@ -32,6 +31,7 @@ class ClusterService extends EventEmitter {
         this.lastPixels = null;
         this.scratchPixels = null;
         this.faceCache = {};
+        this.silverTrail = null;
         this.message = 'Starting cluster theme service';
         this.mapMessage = '';
         this.layerState = '';
@@ -41,6 +41,7 @@ class ClusterService extends EventEmitter {
         this.theme = 'stock';
         this.choices = {};
         this.car = new Car(Date.now, () => this.requestMotionDraw());
+        this.engineReadings = new EngineReadings(context, (key, value) => this.car.put(key, value));
         this.map = new MapWindow(this.log);
         this.car.watch(context);
         this.settings.onChange(() => this.configure());
@@ -69,6 +70,10 @@ class ClusterService extends EventEmitter {
         const slots = {};
         const keys = theme === 'silver' ? SILVER_SLOTS : SLOTS;
         for (const key of keys.concat('fallback')) slots[key] = this.choice(theme + '_' + key);
+        if (theme === 'silver') {
+            slots.faceColour = this.choice('silver_faceColour');
+            slots.needleEffect = this.choice('silver_needleEffect');
+        }
         if (theme === 'five') {
             slots.faceColour = this.choice('five_faceColour');
             slots.speedPosition = this.choice('five_speedPosition');
@@ -86,15 +91,23 @@ class ClusterService extends EventEmitter {
             this.stop();
             return;
         }
+        const choices = this.selections(theme);
+        if (theme !== this.theme || SLOTS.some((key) => this.choices[key] !== choices[key])) this.engineReadings.cancel();
         this.theme = theme;
-        this.choices = this.selections(theme);
+        this.choices = choices;
         this.lastFrame = null;
         if (!this.timer) this.timer = setInterval(() => this.tick(), DRAW_INTERVAL_MS);
         this.tick();
     }
 
     tick() {
-        if (this.client) this.draw();
+        if (this.client) {
+            this.draw();
+            if (this.connected && this.layerState !== 'hidden' && this.layerState !== 'suspended' &&
+                this.theme === 'five' && Number.isFinite(this.car.get('speed'))) {
+                this.engineReadings.update(SLOTS.map((key) => this.choices[key]));
+            }
+        }
         else if (Date.now() >= this.retryAt) this.connect();
     }
 
@@ -136,8 +149,10 @@ class ClusterService extends EventEmitter {
         });
         client.on('disconnected', () => {
             if (!current()) return;
+            this.engineReadings.cancel();
             this.connected = false;
             this.lastFrame = null;
+            this.silverTrail = null;
             this.map.release();
             this.report('Renderer reconnecting; selected theme will resume');
         });
@@ -150,6 +165,8 @@ class ClusterService extends EventEmitter {
                 this.report('Selected theme active');
             }
             else if (state === 'suspended' || state === 'hidden') {
+                this.engineReadings.cancel();
+                this.silverTrail = null;
                 this.map.wait('');
                 this.setMapMessage('');
                 this.report('Instrument panel temporarily unavailable');
@@ -185,16 +202,21 @@ class ClusterService extends EventEmitter {
             // The speed text uses whole km/h. Avoid repainting the panel for
             // fluctuations that do not change the displayed reading.
             if (this.theme !== 'vdoRetro' && Number.isFinite(data.speed)) data.speed = Math.round(data.speed);
-            data.clock = localTime();
+            data.clock = clusterClock(this.settings, now);
             const panelAvailable = this.layerState !== 'suspended' && this.layerState !== 'hidden';
             data.mapSlot = panelAvailable ? this.map.update(this.choices, this.theme) : null;
             this.setMapMessage(panelAvailable ? this.map.message : '');
-            const signature = JSON.stringify([this.theme, this.choices, data]);
+            if (panelAvailable && this.theme === 'silver' && this.choices.needleEffect === 'starlight') {
+                if (!this.silverTrail) this.silverTrail = {};
+                updateSilverTrail(this.silverTrail, data.speed, now);
+            } else this.silverTrail = null;
+            const animatedAt = this.silverTrail && this.silverTrail.samples.length ? now : null;
+            const signature = JSON.stringify([this.theme, this.choices, data, animatedAt]);
             if (signature === this.lastFrame) return;
 
             this.lastDrawAt = now;
             const frame = renderPanelFrame(this.theme, this.choices, data, false, this.scratchPixels || undefined,
-                this.faceCache);
+                this.faceCache, this.silverTrail);
             if (!sendPanelFrame(this.client, this.ref, frame, this.lastPixels)) return;
             this.scratchPixels = this.lastPixels;
             this.lastPixels = frame;
@@ -213,6 +235,7 @@ class ClusterService extends EventEmitter {
     }
 
     releaseClient() {
+        this.engineReadings.cancel();
         if (this.motionTimer) clearTimeout(this.motionTimer);
         this.motionTimer = null;
         this.lastDrawAt = -Infinity;
@@ -224,6 +247,7 @@ class ClusterService extends EventEmitter {
         this.lastPixels = null;
         this.scratchPixels = null;
         this.faceCache = {};
+        this.silverTrail = null;
         this.layerState = '';
         this.map.wait('');
         this.setMapMessage('');

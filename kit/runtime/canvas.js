@@ -30,6 +30,10 @@ function mix(a, b, t) {
 function withAlpha(c, a) { const v = rgba(c); return [v[0], v[1], v[2], Math.round(a * 255)]; }
 
 const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
+function radialCoverage(t) {
+    const fade = 1 - clamp01(t) ** 2;
+    return fade * fade;
+}
 
 /** Signed distance from (dx, dy) (relative to the centre) to a rounded rect of half size hw, hh, radius r. */
 function rrDist(dx, dy, hw, hh, r) {
@@ -266,6 +270,23 @@ class Canvas {
     /** Filled circle. */
     circle(cx, cy, r, c) { return this.arc(cx, cy, 0, r, 0, 360, c); }
 
+    /** Circular light with full strength through innerRadius, fading to zero at radius. */
+    radialGlow(cx, cy, radius, c, innerRadius = 0) {
+        const colour = rgba(c);
+        const span = radius - innerRadius;
+        const x0 = Math.max(0, Math.floor(cx - radius)), x1 = Math.min(this.w, Math.ceil(cx + radius));
+        const y0 = Math.max(0, Math.floor(cy - radius)), y1 = Math.min(this.h, Math.ceil(cy + radius));
+        for (let y = y0; y < y1; y++) {
+            const dy = y + 0.5 - cy;
+            for (let x = x0; x < x1; x++) {
+                const dx = x + 0.5 - cx;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                if (distance < radius) this._blend(x, y, colour, radialCoverage((distance - innerRadius) / span));
+            }
+        }
+        return this;
+    }
+
     /**
      * Annulus sector (ring segment) from angle a0 to a1 (degrees, clockwise
      * from 12 o'clock), radii r0..r1. opts.round = round end caps.
@@ -366,7 +387,7 @@ class Canvas {
      * Filled convex polygon (quad / triangle), anti-aliased: coverage is the product of each
      * edge's distance ramp (as the GPU renderer does it). pts = [[x,y],...] in either order.
      */
-    convex(pts, c) {
+    convex(pts, c, edgeWidths) {
         c = rgba(c);
         const n = pts.length;
         let area = 0;
@@ -376,20 +397,25 @@ class Canvas {
         let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
         for (let i = 0; i < n; i++) {
             const a = pts[i], b = pts[(i + 1) % n], ex = b[0] - a[0], ey = b[1] - a[1], l = Math.sqrt(ex * ex + ey * ey);
-            if (l > 1e-6) { const nx = -ey / l * s, ny = ex / l * s; E.push([nx, ny, -(nx * a[0] + ny * a[1])]); }
+            if (l > 1e-6) {
+                const width = edgeWidths ? Math.max(1, edgeWidths[i]) : 1;
+                const nx = -ey / (l * width) * s, ny = ex / (l * width) * s;
+                E.push([nx, ny, 0.5 / width - nx * a[0] - ny * a[1]]);
+            }
             x0 = Math.min(x0, a[0]); x1 = Math.max(x1, a[0]); y0 = Math.min(y0, a[1]); y1 = Math.max(y1, a[1]);
         }
         for (let py = Math.max(0, Math.floor(y0) - 1); py < Math.min(this.h, Math.ceil(y1) + 1); py++) {
             for (let px = Math.max(0, Math.floor(x0) - 1); px < Math.min(this.w, Math.ceil(x1) + 1); px++) {
                 const qx = px + 0.5, qy = py + 0.5;
                 let cov = 1;
-                for (let k = 0; k < E.length && cov > 0; k++) cov *= clamp01(E[k][0] * qx + E[k][1] * qy + E[k][2] + 0.5);
+                for (let k = 0; k < E.length && cov > 0; k++) cov *= clamp01(E[k][0] * qx + E[k][1] * qy + E[k][2]);
                 if (cov > 0) this._blend(px, py, c, cov);
             }
         }
         return this;
     }
     quad(pts, c) { return this.convex(pts, c); }
+    featheredQuad(pts, c, edgeWidths) { return this.convex(pts, c, edgeWidths); }
     triangle(pts, c) { return this.convex(pts, c); }
 
     /** Polyline (e.g. a history trace). pts = [[x,y],...] */
@@ -528,6 +554,7 @@ class ScaledCanvas {
     line(xa, ya, xb, yb, width, c) { const k = this.k; this.canvas.line(xa * k, ya * k, xb * k, yb * k, width * k, c); return this; }
     convex(pts, c) { this.canvas.convex(this._pts(pts), c); return this; }
     quad(pts, c) { return this.convex(pts, c); }
+    featheredQuad(pts, c, edgeWidths) { return this.canvas.featheredQuad(this._pts(pts), c, edgeWidths.map((width) => width * this.k)); }
     triangle(pts, c) { return this.convex(pts, c); }
     polyline(pts, width, c) { this.canvas.polyline(this._pts(pts), width * this.k, c); return this; }
     fillUnder(pts, baseY, c) { this.canvas.fillUnder(this._pts(pts), baseY * this.k, c); return this; }
@@ -544,4 +571,4 @@ class ScaledCanvas {
     _blit(f, gx, gy, gw, gh, dx, dy, scale, c) { const k = this.k; this.canvas._blit(f, gx, gy, gw, gh, dx * k, dy * k, scale * k, c); }
 }
 
-module.exports = { Canvas, ScaledCanvas, rgba, mix, ramp, withAlpha, RAD };
+module.exports = { Canvas, ScaledCanvas, rgba, mix, ramp, withAlpha, radialCoverage, RAD };

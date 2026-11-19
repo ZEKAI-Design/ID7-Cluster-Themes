@@ -8,6 +8,12 @@ const CONSUMPTION_UNITS = {
     1: 'l100', 2: 'mpgUk', 3: 'mpgUs', 4: 'kml',
 };
 const MEDIA_LINE_TYPES = { 1: 'ARTIST', 2: 'ALBUM', 3: 'TITLE' };
+const GEAR_POSITIONS = new Set(['P', 'R', 'N', 'D']);
+
+function gearPosition(value, parkCode) {
+    if (value === parkCode) return 'P';
+    return GEAR_POSITIONS.has(value) ? value : null;
+}
 
 function scaled(raw, invalid, factor, offset) {
     return Number.isInteger(raw) && raw >= 0 && raw < invalid ? raw * factor + offset : null;
@@ -43,6 +49,18 @@ function nowPlaying(metadata) {
     return title ? { title, artist: artist === title ? '' : artist } : null;
 }
 
+function carPlayTrack(value) {
+    const items = Array.isArray(value) ? value : value && (value.metadata || value.items);
+    if (!Array.isArray(items)) return null;
+    const read = (name) => {
+        const item = items.find((entry) => entry && String(entry.key || entry.type).toUpperCase() === name);
+        const text = item && item.value;
+        return mediaLine(typeof text === 'string' ? text : text && text.stringValue);
+    };
+    const title = read('TITLE');
+    return title ? { title, artist: read('ARTIST') || read('ALBUM'), source: 'CarPlay' } : null;
+}
+
 class Car {
     constructor(now = Date.now, onMotion = () => {}) {
         this.now = now;
@@ -65,37 +83,43 @@ class Car {
     snapshot() {
         const data = {};
         for (const key of Object.keys(this.values)) {
-            data[key] = this.get(key, key === 'speed' ? SPEED_MAX_AGE_MS : DATA_MAX_AGE_MS);
+            if (key === 'carPlay' || key === 'carPlayState') continue;
+            // These values can stay unchanged between vehicle notifications.
+            data[key] = key === 'odometerKm' || key === 'stage' || key === 'selection' ? this.values[key].value
+                : this.get(key, key === 'speed' ? SPEED_MAX_AGE_MS : DATA_MAX_AGE_MS);
         }
+        const state = this.get('carPlayState');
+        const track = this.get('carPlay');
+        if (track && (state === 'PLAY' || (state !== 'STOP' && !data.media))) data.media = track;
         return data;
     }
 
     watch(ctx) {
-        const add = (name, fields, pollMs, { instance = '1', readTimeoutMs = 1000, pollByField } = {}) =>
+        const add = (name, fields, pollMs, { instance = '1', readTimeoutMs = 1000, pollByField, onUnavailable } = {}) =>
             ctx.signals.watch(name, instance, fields, ctx.log, {
-                pollMs, readTimeoutMs, pollByField, shouldPoll: () => !ctx.ui || ctx.ui.isVisible('MAIN'),
+                pollMs, readTimeoutMs, pollByField, onUnavailable, shouldPoll: () => !ctx.ui || ctx.ui.isVisible('MAIN'),
             }).catch((error) => ctx.log.warn('Signal unavailable: ' + name + ' ' + error.message));
 
         add('de.bmw.infotainment.vehicle.Vehicle2', {
             statusCarSpeed2: (v) => this.put('speed', scaled(v && v.speedVehicleCentreOfGravity, 65535, 1 / 64, 0)),
-        }, 150, { readTimeoutMs: 350 });
+        }, 100, { readTimeoutMs: 350 });
         add('de.bmw.infrastructure.VehicleInformation', {
-            statusGearboxDrive: (v) => {
-                const x = v && v.statusActualStageDrive;
-                this.put('stage', x === 'P' || x === 1 ? 'P' : 'other');
+            statusGearboxDrive: (v) => this.put('stage', gearPosition(v && v.statusActualStageDrive, 1)),
+            DataPowerTrain2: (v) => this.put('selection', gearPosition(v && v.statusGearSelectionDrive, 3)),
+        }, 700, {
+            onUnavailable: () => {
+                this.put('stage', null);
+                this.put('selection', null);
             },
-            DataPowerTrain2: (v) => {
-                const x = v && v.statusGearSelectionDrive;
-                this.put('selection', x === 'P' || x === 3 ? 'P' : 'other');
-            },
-        }, 700);
+        });
         add('de.bmw.infotainment.vehicle.CDS', {
             statusEngineSpeed2: (v) => this.put('rpm', scaled(v && v.actualValueRPMEngineCrankshaft, 65535, 0.25, 0)),
             statusEngineTemperature: (v) => {
                 this.put('coolant', scaled(v && v.temperatureEngineDrive, 255, 1, -48));
                 this.put('oil', scaled(v && v.temperatureEngineOilDrive, 255, 1, -48));
             },
-        }, 200, { readTimeoutMs: 450, pollByField: { statusEngineTemperature: 2500 } });
+            statusBattery2: (v) => this.put('batteryCharge', scaled(v && v.conditionBatteryChargingCondition, 101, 1, 0)),
+        }, 100, { readTimeoutMs: 350, pollByField: { statusEngineTemperature: 2500, statusBattery2: 4500 } });
         add('de.bmw.infotainment.KombiIF', {
             statusRangeTankStatus: (v) => {
                 this.put('range', scaled(v && v.range, 4095, 1, 0));
@@ -124,6 +148,14 @@ class Car {
                 }
             },
         }, 3000, { instance: 'HMI_CID' });
+        add('de.bmw.infotainment.entertainment.mediaplayer.MediaPlayer', {
+            currentItemMetadata: (value) => this.put('carPlay', carPlayTrack(value)),
+            playerState: (value) => {
+                const state = value && typeof value === 'object' ? (value.state || value.playerState) : value;
+                const match = /(?:^|_)(PLAY|PAUSE|STOP|STOPPED)$/i.exec(String(state));
+                this.put('carPlayState', match ? match[1].toUpperCase().replace('STOPPED', 'STOP') : null);
+            },
+        }, 2500, { instance: 'CarPlayMedia' });
     }
 }
 

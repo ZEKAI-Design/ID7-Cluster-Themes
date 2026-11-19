@@ -11,7 +11,7 @@
  *
  * Recording a whole frame costs well under a millisecond; nothing here touches pixels.
  */
-const { Canvas, rgba } = require('./canvas');
+const { Canvas, rgba, radialCoverage } = require('./canvas');
 const fonts = require('./fonts');
 const { t } = require('./i18n');
 
@@ -164,6 +164,22 @@ class Recorder {
         this.n += 9; return this;
     }
     circle(cx, cy, r, c) { return this.arc(cx, cy, 0, r, 0, 360, c); }
+    radialGlow(cx, cy, radius, c, innerRadius = 0) {
+        // Use the existing arc command on the head unit renderer.
+        const [r, g, b, alpha] = rgba(c);
+        const span = radius - innerRadius;
+        const steps = Math.ceil(span);
+        let opacity = 0;
+        for (let n = 1; n <= steps; n++) {
+            const progress = n / steps;
+            const target = alpha * radialCoverage(1 - progress);
+            const overlay = Math.round((target - opacity) / (1 - opacity / 255));
+            if (overlay < 3) continue;
+            this.circle(cx, cy, radius - (n - 0.5) * span / steps, [r, g, b, overlay]);
+            opacity += overlay * (1 - opacity / 255);
+        }
+        return this;
+    }
     arc(cx, cy, r0, r1, a0, a1, c, opts) {
         this._grow(12); const f = this.f, i = this.n;
         const ramp = opts && opts.ramp;

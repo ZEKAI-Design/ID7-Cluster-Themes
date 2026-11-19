@@ -6,7 +6,7 @@ const { PANEL_WIDTH, PANEL_HEIGHT, panelLayout } = require('./panel-layout');
 const { wazeFullPanel } = require('./waze-full-screen');
 const { vdoPanel } = require('./vdo-retro');
 
-function renderPanelFrame(theme, choices, data, demo = false, canvas = new Canvas(PANEL_WIDTH, PANEL_HEIGHT), faceCache) {
+function renderPanelFrame(theme, choices, data, demo = false, canvas = new Canvas(PANEL_WIDTH, PANEL_HEIGHT), faceCache, needleTrail) {
     const liveFullMap = theme === 'wazeFull' && data.mapSlot === 'fullMap';
     const base = liveFullMap ? '#00000000' : theme === 'vdoRetro' ? '#070809' : '#030507';
     const layout = panelLayout(theme);
@@ -29,7 +29,7 @@ function renderPanelFrame(theme, choices, data, demo = false, canvas = new Canva
         vdoPanel(canvas, data, Object.assign(layout, { demo }));
     } else {
         panel(canvas, theme, choices, data, Object.assign(layout, {
-            demo, background: false, clock: data.clock, mapSlot: data.mapSlot,
+            demo, background: false, clock: data.clock, mapSlot: data.mapSlot, needleTrail,
         }));
     }
     // In a side dial, the compatible Waze provider draws its map above

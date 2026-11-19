@@ -78,7 +78,13 @@ async function watch(iface, instance, handlers, log, opts) {
             }).catch(() => {}).then(() => pending.delete(f));
         });
         await nativeTick(() => {
-            try { return p.subscribeToAvailability((a) => { res.available = !!a; if (a) setImmediate(() => fetchAll(true)); }); } catch (e) { return null; /* older binding */ }
+            try {
+                return p.subscribeToAvailability((available) => {
+                    res.available = Boolean(available);
+                    if (available) setImmediate(() => fetchAll(true));
+                    else if (opts && opts.onUnavailable) opts.onUnavailable();
+                });
+            } catch (e) { return null; /* older binding */ }
         });
         for (const f of fields) {
             try {
