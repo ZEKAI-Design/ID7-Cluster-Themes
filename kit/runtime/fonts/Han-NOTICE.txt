@@ -1,0 +1,4 @@
+The optional Han bitmap fallback is derived from Jigmo (Jigmo, Jigmo2 and
+Jigmo3), release 2025-09-12, by Koichi Kamichi and GlyphWiki contributors.
+Source: https://kamichikoichi.github.io/jigmo/
+License: CC0 1.0 Universal (https://creativecommons.org/publicdomain/zero/1.0/).
