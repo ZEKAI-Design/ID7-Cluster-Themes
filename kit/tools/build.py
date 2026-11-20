@@ -440,6 +440,8 @@ def build(app_id, language='en', preview_only=False, omit_sdk=False):
     # impl.background runs then, without screens
     if spec.get('autostart'):
         pkg['mguAppStartType'] = 'autostart'
+    if spec.get('internet'):
+        pkg['mguInternet'] = True
     pkg['mguHmi'] = ['ID7']
     json.dump(pkg, open(os.path.join(src, 'package.json'), 'w', encoding='utf-8', newline='\n'), indent=2)
     for name in ('LICENSE-CLUSTER-RENDER-CLIENT', 'LICENSE-IDRIVE7-APP-KIT'):
