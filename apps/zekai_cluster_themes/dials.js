@@ -59,6 +59,43 @@ const PORSCHE_GAUGES = {
     ],
     coolantGauge: [{ field: 'coolant', unit: '°C', min: 60, max: 120, start: 135, end: 45, divisions: 4 }],
 };
+const PORSCHE_RPM_START = 233;
+const PORSCHE_RPM_SPAN = 254;
+
+function porscheGaugeLayout(slot) {
+    const [cx, cy, radius] = PORSCHE_DIALS[slot];
+    const offset = slot === 'leftOuter' ? -10 : slot === 'rightOuter' ? 10 : 0;
+    return [cx + offset, cy, radius - Math.abs(offset)];
+}
+
+function porscheSpeedLabel(choices) {
+    const [x, cy] = PORSCHE_CENTRE;
+    const lower = choices.speedPosition !== 'centre';
+    return { x, y: lower ? cy + 75 : 178, size: lower ? 55 : 62, maxWidth: 105 };
+}
+
+function porscheMotionAngle(field, value) {
+    if (!Number.isFinite(value)) return null;
+    if (field === 'rpm') return PORSCHE_RPM_START + PORSCHE_RPM_SPAN * Math.max(0, Math.min(1, value / 8000));
+    const { min, max, start, end } = PORSCHE_GAUGES.analogueSpeed[0];
+    return start + (end - start) * Math.max(0, Math.min(1, (value - min) / (max - min)));
+}
+
+function point(cx, cy, degrees, radius) {
+    const angle = degrees * Math.PI / 180;
+    return [cx + radius * Math.sin(angle), cy - radius * Math.cos(angle)];
+}
+
+function paintPorscheNeedle(line, disc, cx, cy, degrees, length, width, hub) {
+    const tip = point(cx, cy, degrees, length);
+    const tail = point(cx, cy, degrees, hub ? -length * 0.18 : 69);
+    line(...tail, ...tip, width + 2, '#14141c');
+    line(...tail, ...tip, width, '#f3f2fc');
+    if (!hub) return;
+    disc(cx, cy, hub + 1.5, '#14141c');
+    disc(cx, cy, hub, '#a2a4b4');
+    disc(cx - hub * 0.18, cy - hub * 0.18, hub * 0.54, '#bfc1cc');
+}
 
 function circleSegment(a, b, radius) {
     const [dx, dy] = [b[0] - a[0], b[1] - a[1]];
@@ -125,19 +162,8 @@ function panel(canvas, theme, selections, data, opts) {
         arc(cx, cy, radius - 5.6, radius - 4.5, 0, 360, palette.edge);
     };
 
-    const point = (cx, cy, degrees, radius) => {
-        const a = degrees * Math.PI / 180;
-        return [cx + radius * Math.sin(a), cy - radius * Math.cos(a)];
-    };
-    const needle = (cx, cy, degrees, length, width, hub) => {
-        const tip = point(cx, cy, degrees, length);
-        const tail = point(cx, cy, degrees, -length * 0.18);
-        line(...tail, ...tip, width + 2, '#14141c');
-        line(...tail, ...tip, width, '#f3f2fc');
-        disc(cx, cy, hub + 1.5, '#14141c');
-        disc(cx, cy, hub, '#a2a4b4');
-        disc(cx - hub * 0.18, cy - hub * 0.18, hub * 0.54, '#bfc1cc');
-    };
+    const needle = (cx, cy, degrees, length, width, hub) =>
+        paintPorscheNeedle(line, disc, cx, cy, degrees, length, width, hub);
     const oilIcon = (cx, cy) => {
         trace([[cx - 10, cy - 3], [cx - 6, cy - 2], [cx - 5, cy + 4], [cx + 4, cy + 4],
             [cx + 10, cy - 3], [cx + 3, cy - 2], [cx, cy - 4], [cx - 6, cy - 4], [cx - 10, cy - 6],
@@ -202,22 +228,27 @@ function panel(canvas, theme, selections, data, opts) {
                 text(label, x, baseline, size, colour, 'bold');
             };
             if (staticFace) {
+                const labelsOnly = opts.speedScaleSlot;
+                const paintLabels = labelsOnly || !speedometer || !opts.nativeNeedles;
                 for (let i = 0; i <= divisions; i++) {
                     const fraction = i / divisions;
                     const a = angle(fraction);
                     const major = i % majorEvery === 0;
                     const labelled = i % labelsEvery === 0;
-                    line(...point(cx, cy, a, scaleRadius - (major ? 8 : labelled ? 6 : 4)),
-                        ...point(cx, cy, a, scaleRadius), major ? 2.1 : 0.9, labelled ? dialInk : dialSoft);
-                    if (labelled) drawScaleLabel(scaleLabel(i));
+                    if (!labelsOnly) {
+                        line(...point(cx, cy, a, scaleRadius - (major ? 8 : labelled ? 6 : 4)),
+                            ...point(cx, cy, a, scaleRadius), major ? 2.1 : 0.9, labelled ? dialInk : dialSoft);
+                    }
+                    if (labelled && paintLabels) drawScaleLabel(scaleLabel(i));
                 }
-                text(unit, unitX, unitY, 12, dialSoft, 'medium');
+                if (paintLabels) text(unit, unitX, unitY, 12, dialSoft, 'medium');
                 if (field === 'oil' || field === 'coolant') {
                     line(...point(cx, cy, start, scaleRadius - 5), ...point(cx, cy, start, scaleRadius - 1), 2, '#48b6ff');
                     line(...point(cx, cy, end, scaleRadius - 5), ...point(cx, cy, end, scaleRadius - 1), 2, '#ff655c');
                 }
                 continue;
             }
+            if (speedometer && opts.nativeNeedles) continue;
             const value = data[field];
             if (Number.isFinite(value)) {
                 const fraction = Math.max(0, Math.min(1, (value - min) / (max - min)));
@@ -242,6 +273,7 @@ function panel(canvas, theme, selections, data, opts) {
             }
         }
     };
+    if (opts.speedScaleSlot) return paintGauge('analogueSpeed', ...porscheGaugeLayout(opts.speedScaleSlot), true);
     const labels = (cx, cy, label, value, size = 25) => {
         text(value, cx, cy + 4, size, dialInk);
         text(label, cx, cy + 24, 12, dialSoft, 'medium');
@@ -384,11 +416,10 @@ function panel(canvas, theme, selections, data, opts) {
     }
 
     const positions = SLOTS.map((slot) => PORSCHE_DIALS[slot]);
-    const contentOffsets = [-10, 0, 0, 10];
     const lowSpeed = selections.speedPosition !== 'centre';
     const [centreX, centreY, centreRadius] = PORSCHE_CENTRE;
-    const rpmStart = 233;
-    const rpmSpan = 254;
+    const rpmStart = PORSCHE_RPM_START;
+    const rpmSpan = PORSCHE_RPM_SPAN;
     const rpmLabelSize = 27;
     const rpmWeight = 0.8;
     const wideRing = Boolean(palette.centreRing);
@@ -401,10 +432,10 @@ function panel(canvas, theme, selections, data, opts) {
     paintBackground(() => {
         [0, 3, 1, 2].forEach((index) => {
             const [cx, cy, radius] = positions[index];
-            const offset = contentOffsets[index];
+            const slot = SLOTS[index];
             frame(cx, cy, radius);
-            const kind = selections[SLOTS[index]];
-            if (PORSCHE_GAUGES[kind]) paintGauge(kind, cx + offset, cy, radius - Math.abs(offset), true);
+            const kind = selections[slot];
+            if (PORSCHE_GAUGES[kind]) paintGauge(kind, ...porscheGaugeLayout(slot), true);
         });
         frame(centreX, centreY, centreRadius, palette.centreFace);
         if (wideRing) {
@@ -456,27 +487,22 @@ function panel(canvas, theme, selections, data, opts) {
         for (const mark of rpmLabels) text(mark.label, mark.x, mark.baseline, rpmLabelSize, dialInk, 'bold', 0, rpmWeight);
         text('1/min × 1000', centreX, lowSpeed ? 139 : 124, 12, dialSoft, 'medium');
     });
-    positions.forEach(([cx, cy, radius], index) => {
-        const slot = SLOTS[index];
+    SLOTS.forEach((slot) => {
         if (opts.mapSlot === slot) return;
         const kind = selections[slot];
-        const offset = contentOffsets[index];
-        if (PORSCHE_GAUGES[kind]) paintGauge(kind, cx + offset, cy, radius - Math.abs(offset), false);
-        else paintSlot(kind, cx + offset, cy);
+        const [cx, cy, radius] = porscheGaugeLayout(slot);
+        if (PORSCHE_GAUGES[kind]) paintGauge(kind, cx, cy, radius, false);
+        else paintSlot(kind, cx, cy);
     });
-    if (Number.isFinite(data.rpm)) {
-        const angle = rpmStart + rpmSpan * Math.max(0, Math.min(1, data.rpm / 8000));
-        if (lowSpeed) needle(centreX, centreY, angle, 88, 3.1, 7);
-        else {
-            line(...point(centreX, centreY, angle, 69), ...point(centreX, centreY, angle, 88), 5, '#14141c');
-            line(...point(centreX, centreY, angle, 69), ...point(centreX, centreY, angle, 88), 3, '#f3f2fc');
-        }
+    if (!opts.nativeNeedles && Number.isFinite(data.rpm)) {
+        needle(centreX, centreY, porscheMotionAngle('rpm', data.rpm), 88, lowSpeed ? 3.1 : 3, lowSpeed ? 7 : 0);
     }
-    const speed = number(data.speed);
-    const speedSize = lowSpeed ? 55 : 62;
-    const speedY = lowSpeed ? centreY + 75 : 178;
+    if (!opts.nativeDigits) {
+        const speed = number(data.speed);
+        const label = porscheSpeedLabel(selections);
+        text(speed, label.x, label.y, fitBold(speed, label.size, label.maxWidth), dialInk, 'bold');
+    }
     const unitY = lowSpeed ? centreY + 89 : 204;
-    text(speed, centreX, speedY, fitBold(speed, speedSize, 105), dialInk, 'bold');
     text('km/h', centreX, unitY, 10, dialInk, 'medium');
     text(number(data.range) + ' km', centreX, centreY + 121, 17, dialInk, 'medium');
     const fullRange = Number(selections.fullRangeKm) || DEFAULT_FULL_RANGE_KM;
@@ -491,4 +517,7 @@ function panel(canvas, theme, selections, data, opts) {
 
 }
 
-module.exports = { panel, SLOTS, SILVER_SLOTS, NAMES, DEMO, PALETTES };
+module.exports = {
+    panel, SLOTS, SILVER_SLOTS, NAMES, DEMO, PALETTES, INK,
+    porscheGaugeLayout, porscheSpeedLabel, porscheMotionAngle, paintPorscheNeedle,
+};

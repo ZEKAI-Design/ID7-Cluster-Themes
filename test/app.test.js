@@ -24,6 +24,7 @@ class FakeRender extends EventEmitter {
         this.backend = 'id7';
         this.targets = 'map:1088x480,panel:1920x720,hud:800x480';
         this.frames = 0;
+        this.pixelUploads = 0;
         this.images = new Map();
         this.assets = new Map();
         this.effects = new Map();
@@ -56,6 +57,7 @@ class FakeRender extends EventEmitter {
         this.uniforms.delete(ref);
     }
     pixels(ref, rects, pixels) {
+        this.pixelUploads++;
         const image = this.images.get(ref);
         if (!image || image.w !== 1920) return true;
         this.frames++;
@@ -1159,6 +1161,60 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
         frame.targets.find((target) => target.key === 'porsche:restoreLayout').run();
         assert.equal(background.choices.leftOuter, 'battery');
         assert.equal(background.choices.speedPosition, 'lower');
+        const sendPorscheSpeed = (speed) => handlers.get(vehicle2).statusCarSpeed2({ speedVehicleCentreOfGravity: speed * 64 });
+        const sendPorscheRpm = (rpm) => handlers.get(cds).statusEngineSpeed2({ actualValueRPMEngineCrankshaft: rpm * 4 });
+        sendPorscheSpeed(66);
+        sendPorscheRpm(1750);
+        now += 50;
+        interval();
+        const porsche = background.porscheMotion;
+        const [tach, speedometer] = porsche.needles.layers;
+        const lowerDigits = porsche.digits.labels[0];
+        const lowerPosition = renderer.transforms.get(lowerDigits.ref).y;
+        assert.equal(renderer.transforms.get(tach.ref).rotate, 233 + 254 * 1750 / 8000);
+        assert.equal(renderer.transforms.get(speedometer.ref).rotate, 182 + 208 * 66 / 300);
+        assert.equal(porsche.scales.length, 1);
+        assert.equal(renderer.transforms.get(porsche.scales[0].ref).visible, true);
+        const uploads = renderer.pixelUploads;
+        now += 1;
+        sendPorscheSpeed(79);
+        sendPorscheRpm(2130);
+        sendPorscheSpeed(86);
+        sendPorscheRpm(2360);
+        assert.ok(delay >= 0 && delay <= 16);
+        now += 16;
+        motion();
+        assert.equal(renderer.transforms.get(tach.ref).rotate, 233 + 254 * 2360 / 8000);
+        assert.equal(renderer.transforms.get(speedometer.ref).rotate, 182 + 208 * 86 / 300);
+        assert.equal(lowerDigits.value, '86');
+        assert.equal(renderer.pixelUploads, uploads);
+        renderer.blocked = true;
+        sendPorscheSpeed(20);
+        sendPorscheSpeed(0);
+        sendPorscheRpm(850);
+        renderer.blocked = false;
+        renderer.emit('drain');
+        now += 16;
+        motion();
+        assert.equal(renderer.transforms.get(speedometer.ref).rotate, 182);
+        assert.equal(lowerDigits.value, '0');
+        assert.equal(renderer.pixelUploads, uploads);
+        settings.set('five_speedPosition', 'centre');
+        settings.set('five_rightOuter', 'analogueSpeed');
+        now += 50;
+        interval();
+        assert.equal(porsche.needles.layers.length, 3);
+        assert.ok(renderer.transforms.get(porsche.digits.labels[0].ref).y < lowerPosition);
+        const centreUploads = renderer.pixelUploads;
+        now += 16;
+        sendPorscheSpeed(47);
+        sendPorscheRpm(1200);
+        motion();
+        assert.equal(porsche.digits.labels[0].value, '47');
+        for (const entry of porsche.needles.layers.slice(1)) {
+            assert.equal(renderer.transforms.get(entry.ref).rotate, 182 + 208 * 47 / 300);
+        }
+        assert.equal(renderer.pixelUploads, centreUploads);
         for (const slot of SLOTS) {
             const prior = { ...background.choices };
             select('slot:' + slot, 'five_' + slot, 'none');
