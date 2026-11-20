@@ -1161,6 +1161,7 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
         frame.targets.find((target) => target.key === 'porsche:restoreLayout').run();
         assert.equal(background.choices.leftOuter, 'battery');
         assert.equal(background.choices.speedPosition, 'lower');
+        settings.set('five_faceColour', 'red');
         const sendPorscheSpeed = (speed) => handlers.get(vehicle2).statusCarSpeed2({ speedVehicleCentreOfGravity: speed * 64 });
         const sendPorscheRpm = (rpm) => handlers.get(cds).statusEngineSpeed2({ actualValueRPMEngineCrankshaft: rpm * 4 });
         sendPorscheSpeed(66);
@@ -1173,8 +1174,18 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
         const lowerPosition = renderer.transforms.get(lowerDigits.ref).y;
         assert.equal(renderer.transforms.get(tach.ref).rotate, 233 + 254 * 1750 / 8000);
         assert.equal(renderer.transforms.get(speedometer.ref).rotate, 182 + 208 * 66 / 300);
-        assert.equal(porsche.scales.length, 1);
-        assert.equal(renderer.transforms.get(porsche.scales[0].ref).visible, true);
+        assert.equal(renderer.images.size, 3);
+        // cluster-render accounts for two copies of every mutable texture,
+        // including a standard 1088x480 map's I420 buffers from another app.
+        const rendererBudget = 16 * 1024 * 1024;
+        const wazeBuffers = 1088 * 720 * 4;
+        const imageBytes = [...renderer.images.values()].reduce((bytes, { iw, ih, w, h }) =>
+            bytes + (iw || w) * (ih || h) * 8, 0);
+        const assetBytes = [...renderer.assets.values()].reduce((bytes, { w, h, format }) =>
+            bytes + w * h * (format === 'r8' ? 2 : 8), 0);
+        const total = wazeBuffers + imageBytes + assetBytes;
+        assert.ok(total < rendererBudget);
+        assert.ok(total + 478 * 478 * 8 > rendererBudget, '0.8.21 separate speed scale exceeds the shared budget');
         const uploads = renderer.pixelUploads;
         now += 1;
         sendPorscheSpeed(79);
@@ -1293,7 +1304,7 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
         const renderedFrames = remounted.frames;
         remounted.emit('refused', 'layer', digitRef, 'simulated shader refusal');
         assert.equal(restarted.client, null);
-        assert.match(restarted.status(), /Rolls Royce live rendering unavailable/);
+        assert.match(restarted.status(), /Rolls Royce live rendering unavailable · simulated shader refusal/);
         now += 100;
         sendZero();
         interval();

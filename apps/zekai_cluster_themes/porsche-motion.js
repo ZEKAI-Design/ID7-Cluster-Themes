@@ -1,11 +1,11 @@
 'use strict';
 
-const { Canvas, rgba } = require('./kit/canvas');
+const { rgba } = require('./kit/canvas');
 const { panelLayout, PORSCHE_CENTRE } = require('./panel-layout');
 const { RotatingNeedles } = require('./rotating-needles');
 const { NativeDigits } = require('./native-digits');
 const {
-    panel, SLOTS, PALETTES, INK, porscheGaugeLayout, porscheSpeedLabel, porscheMotionAngle, paintPorscheNeedle,
+    SLOTS, PALETTES, INK, porscheGaugeLayout, porscheSpeedLabel, porscheMotionAngle, paintPorscheNeedle,
 } = require('./dials');
 
 class PorscheMotion {
@@ -13,7 +13,6 @@ class PorscheMotion {
         this.client = client;
         this.layout = panelLayout('five');
         this.needles = new RotatingNeedles(client, this.layout);
-        this.scales = [];
         this.digits = null;
         this.key = null;
     }
@@ -30,23 +29,6 @@ class PorscheMotion {
         });
     }
 
-    addSpeedScale(slot, choices) {
-        const [cx, cy, radius] = porscheGaugeLayout(slot);
-        const { x, y, scale } = this.layout;
-        const left = Math.floor(x + (cx - radius) * scale);
-        const top = Math.floor(y + (cy - radius) * scale);
-        const size = Math.ceil(2 * radius * scale) + 1;
-        const canvas = new Canvas(size, size);
-        panel(canvas, 'five', choices, {}, { x: x - left, y: y - top, scale, background: false, speedScaleSlot: slot });
-        const ref = this.client.image({
-            target: 'panel', klass: 'overlay', z: 2, x: left, y: top, w: size, h: size,
-            visible: false, sampling: 'nearest',
-        });
-        if (!ref) return false;
-        this.scales.push({ ref, visible: false });
-        return this.client.pixels(ref, null, Buffer.from(canvas.d.buffer));
-    }
-
     prepare(choices) {
         const slots = SLOTS.filter((slot) => choices[slot] === 'analogueSpeed');
         const key = JSON.stringify([choices.faceColour, choices.speedPosition, slots]);
@@ -57,7 +39,7 @@ class PorscheMotion {
         if (!this.addNeedle(cx, cy, 88, lower ? 3.1 : 3, lower ? 7 : 0)) return false;
         for (const slot of slots) {
             const [x, y, radius] = porscheGaugeLayout(slot);
-            if (!this.addNeedle(x, y, radius - 7, 2.7, 5) || !this.addSpeedScale(slot, choices)) return false;
+            if (!this.addNeedle(x, y, radius - 7, 2.7, 5)) return false;
         }
         const palette = PALETTES[choices.faceColour] || PALETTES.navy;
         const shadow = {
@@ -76,24 +58,18 @@ class PorscheMotion {
 
     update(data, shown) {
         const speed = porscheMotionAngle('speed', data.speed);
-        this.needles.move([porscheMotionAngle('rpm', data.rpm), ...this.scales.map(() => speed)], shown);
-        for (const scale of this.scales) {
-            if (scale.visible === shown) continue;
-            this.client.set(scale.ref, { visible: shown });
-            scale.visible = shown;
-        }
+        const angles = this.needles.layers.map((layer, index) => index === 0 ? porscheMotionAngle('rpm', data.rpm) : speed);
+        this.needles.move(angles, shown);
         const value = Number.isFinite(data.speed) ? data.speed.toFixed(0) : '--';
         this.digits.place(this.digits.labels[0], this.label, value, this.ink, shown);
     }
 
     owns(ref) {
-        return this.needles.owns(ref) || this.scales.some((scale) => scale.ref === ref) || (this.digits && this.digits.owns(ref));
+        return this.needles.owns(ref) || (this.digits && this.digits.owns(ref));
     }
 
     drop() {
         this.needles.drop();
-        for (const { ref } of this.scales) this.client.drop(ref);
-        this.scales = [];
         if (this.digits) this.digits.drop();
         this.digits = null;
         this.key = null;

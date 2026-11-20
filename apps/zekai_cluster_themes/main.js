@@ -52,7 +52,10 @@ mgu.run({
             return slots;
         }
 
-        function apply() { settings.set('clusterOverlayEnabled', true); }
+        function apply() {
+            settings.set('clusterOverlayEnabled', true);
+            if (background) background.retryNativeMotion();
+        }
         function restore() { settings.set('clusterOverlayEnabled', false); }
 
         const loop = ctx.loop('MAIN', 8, render);
@@ -166,7 +169,8 @@ mgu.run({
                     cv.target(x, 387, column - 11, 62, () => ctx.openSetting(theme + '_' + key), 'slot:' + key, 9);
                 }
             });
-            label(status, 361, 480, 22, '#a9ccf1');
+            const statusWidth = cv.textWidth(status, 22, { literal: true });
+            label(status, 361, 480, statusWidth > 1180 ? 22 * 1180 / statusWidth : 22, '#a9ccf1');
             return ui.image('MAIN_GFX', cv);
         }
 

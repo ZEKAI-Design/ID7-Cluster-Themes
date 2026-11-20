@@ -228,20 +228,16 @@ function panel(canvas, theme, selections, data, opts) {
                 text(label, x, baseline, size, colour, 'bold');
             };
             if (staticFace) {
-                const labelsOnly = opts.speedScaleSlot;
-                const paintLabels = labelsOnly || !speedometer || !opts.nativeNeedles;
                 for (let i = 0; i <= divisions; i++) {
                     const fraction = i / divisions;
                     const a = angle(fraction);
                     const major = i % majorEvery === 0;
                     const labelled = i % labelsEvery === 0;
-                    if (!labelsOnly) {
-                        line(...point(cx, cy, a, scaleRadius - (major ? 8 : labelled ? 6 : 4)),
-                            ...point(cx, cy, a, scaleRadius), major ? 2.1 : 0.9, labelled ? dialInk : dialSoft);
-                    }
-                    if (labelled && paintLabels) drawScaleLabel(scaleLabel(i));
+                    line(...point(cx, cy, a, scaleRadius - (major ? 8 : labelled ? 6 : 4)),
+                        ...point(cx, cy, a, scaleRadius), major ? 2.1 : 0.9, labelled ? dialInk : dialSoft);
+                    if (labelled) drawScaleLabel(scaleLabel(i));
                 }
-                if (paintLabels) text(unit, unitX, unitY, 12, dialSoft, 'medium');
+                text(unit, unitX, unitY, 12, dialSoft, 'medium');
                 if (field === 'oil' || field === 'coolant') {
                     line(...point(cx, cy, start, scaleRadius - 5), ...point(cx, cy, start, scaleRadius - 1), 2, '#48b6ff');
                     line(...point(cx, cy, end, scaleRadius - 5), ...point(cx, cy, end, scaleRadius - 1), 2, '#ff655c');
@@ -273,7 +269,6 @@ function panel(canvas, theme, selections, data, opts) {
             }
         }
     };
-    if (opts.speedScaleSlot) return paintGauge('analogueSpeed', ...porscheGaugeLayout(opts.speedScaleSlot), true);
     const labels = (cx, cy, label, value, size = 25) => {
         text(value, cx, cy + 4, size, dialInk);
         text(label, cx, cy + 24, 12, dialSoft, 'medium');

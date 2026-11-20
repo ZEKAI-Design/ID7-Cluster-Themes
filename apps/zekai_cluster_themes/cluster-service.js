@@ -323,7 +323,15 @@ class ClusterService extends EventEmitter {
         this.log.warn(title + ' motion layer unavailable: ' + reason);
         this.nativeMotionFailed = true;
         this.releaseClient();
-        this.report('BMW original · ' + title + ' live rendering unavailable');
+        const detail = String(reason || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+        this.report('BMW original · ' + title + ' live rendering unavailable' + (detail ? ' · ' + detail : ''));
+    }
+
+    retryNativeMotion() {
+        if (!this.nativeMotionFailed) return;
+        this.nativeMotionFailed = false;
+        this.retryAt = 0;
+        this.configure();
     }
 
     handleNativeMotionError(ref, reason) {
