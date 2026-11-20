@@ -2,10 +2,11 @@
   "id": "zekai_cluster_themes",
   "title": "ID7 Cluster Themes",
   "vendor": "ZEKAI Design",
-  "version": "0.8.24",
+  "version": "0.8.25",
   "loggingId": "ZCT1",
   "description": "Persistent, auto-starting instrument themes for BMW iDrive 7. Choose a theme in the app; select BMW original to turn the overlay off.",
   "autostart": true,
+  "internet": true,
   "iconGlyph": "gauge",
   "mguHmi": [
     "ID7"
@@ -70,6 +71,7 @@
     "de.bmw.infotainment.hmi.hmimediastate.HmiMediaState": {
       "_instances": "HMI_CID",
       "playerMetadata": "rs",
+      "coverArt": "rs",
       "_optional": "Front-seat Now playing title and artist"
     },
     "de.bmw.infotainment.entertainment.mediaplayer.MediaPlayer": {
@@ -86,6 +88,12 @@
     }
   },
   "settings": [
+    {
+      "key": "onlineCoverArt",
+      "label": "Online album covers (share track details)",
+      "type": "bool",
+      "default": false
+    },
     {
       "key": "clusterOverlayEnabled",
       "label": "Start selected theme at boot",

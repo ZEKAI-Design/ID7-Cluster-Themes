@@ -14,6 +14,8 @@ const { PorscheMotion } = require('./porsche-motion');
 const { SilverStarlight } = require('./silver-starlight');
 const { clusterClock } = require('./cluster-clock');
 const { EngineReadings } = require('./engine-readings');
+const { OnlineArtwork } = require('./online-artwork');
+const { withArtwork } = require('./media-artwork');
 
 const DRAW_INTERVAL_MS = 50;
 const NATIVE_MOTION_INTERVAL_MS = 16;
@@ -32,6 +34,7 @@ class ClusterService extends EventEmitter {
         super();
         this.context = context;
         this.settings = context.settings;
+        this.onlineArtwork = new OnlineArtwork(context.dataDir);
         this.log = context.log;
         this.client = null;
         this.ref = null;
@@ -428,6 +431,12 @@ class ClusterService extends EventEmitter {
             data.clock = clusterClock(this.settings, now);
             const panelAvailable = this.layerState !== 'suspended' && this.layerState !== 'hidden';
             data.mapSlot = panelAvailable ? this.map.update(this.choices, this.theme) : null;
+            const mediaVisible = SLOTS.some((slot) => this.choices[slot] === 'media' ||
+                (this.choices[slot] === 'waze' && this.choices.fallback === 'media' && slot !== data.mapSlot));
+            if (panelAvailable && mediaVisible && data.media && !data.media.artwork &&
+                this.settings.get('onlineCoverArt') === true) {
+                data.media = withArtwork(data.media, this.onlineArtwork.get(data.media, now), 'online');
+            }
             this.setMapMessage(panelAvailable ? this.map.message : '');
             // The native BMW map can still display while Waze waits or uses the stock map slot.
             if (this.theme === 'wazeFull' && data.mapSlot !== 'fullMap') {

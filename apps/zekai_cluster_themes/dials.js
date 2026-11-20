@@ -61,6 +61,22 @@ const PORSCHE_GAUGES = {
 };
 const PORSCHE_RPM_START = 233;
 const PORSCHE_RPM_SPAN = 254;
+const BATTERY_CHARGE_GAUGE = Object.assign({}, PORSCHE_GAUGES.battery[0], {
+    field: 'batteryCharge', unit: 'SOC %', min: 0, max: 100,
+});
+
+function porscheBatteryUsesCharge(data) {
+    return !Number.isFinite(data.batteryVolts) && Number.isFinite(data.batteryCharge);
+}
+
+function porscheMediaArea(cx, cy, radius) {
+    // Reserve the whole height of both lines, including their shadow and descenders.
+    const [mainX, mainY, mainRadius] = PORSCHE_CENTRE;
+    const nearY = cy + 10 - mainY;
+    const inner = Math.sqrt((mainRadius + 7) ** 2 - nearY ** 2) - Math.abs(cx - mainX);
+    const outer = Math.sqrt((radius - 8) ** 2 - 53 ** 2);
+    return { x: cx + Math.sign(cx - mainX) * (inner + outer) / 2, width: outer - inner };
+}
 
 function porscheGaugeLayout(slot) {
     const [cx, cy, radius] = PORSCHE_DIALS[slot];
@@ -129,23 +145,23 @@ function panel(canvas, theme, selections, data, opts) {
     const { measure, fitBold } = type;
     const dialInk = theme === 'five' && palette.ink || INK;
     const dialSoft = theme === 'five' && palette.soft || SOFT;
-    const text = (value, cx, cy, size, colour = INK, weight = 'regular', spacing = 0, embolden = 0) => {
+    const text = (value, cx, cy, size, colour = INK, weight = 'regular', spacing = 0, embolden = 0, hanFallback = false) => {
         if (theme === 'silver') colour = SILVER_TEXT;
         const faceWeight = theme === 'five' ? 'bold' : weight;
         if (theme === 'five' && palette.textShadow) {
             if (palette.outline) {
                 const edge = (size >= 32 ? 0.95 : 0.6) + embolden;
-                type.text(value, cx - edge, cy, size, palette.textShadow, faceWeight, spacing);
-                type.text(value, cx + edge, cy, size, palette.textShadow, faceWeight, spacing);
-                type.text(value, cx, cy - edge, size, palette.textShadow, faceWeight, spacing);
-                type.text(value, cx, cy + edge, size, palette.textShadow, faceWeight, spacing);
-            } else type.text(value, cx, cy + 0.9, size, palette.textShadow, faceWeight, spacing);
+                type.text(value, cx - edge, cy, size, palette.textShadow, faceWeight, spacing, hanFallback);
+                type.text(value, cx + edge, cy, size, palette.textShadow, faceWeight, spacing, hanFallback);
+                type.text(value, cx, cy - edge, size, palette.textShadow, faceWeight, spacing, hanFallback);
+                type.text(value, cx, cy + edge, size, palette.textShadow, faceWeight, spacing, hanFallback);
+            } else type.text(value, cx, cy + 0.9, size, palette.textShadow, faceWeight, spacing, hanFallback);
         }
         if (embolden > 0) {
-            type.text(value, cx - embolden, cy, size, colour, faceWeight, spacing);
-            type.text(value, cx + embolden, cy, size, colour, faceWeight, spacing);
+            type.text(value, cx - embolden, cy, size, colour, faceWeight, spacing, hanFallback);
+            type.text(value, cx + embolden, cy, size, colour, faceWeight, spacing, hanFallback);
         }
-        return type.text(value, cx, cy, size, colour, faceWeight, spacing);
+        return type.text(value, cx, cy, size, colour, faceWeight, spacing, hanFallback);
     };
     const quad = (pts, color) => canvas.quad(pts.map(([px, py]) => [x(px), y(py)]), color);
     const trace = (pts, width, color) => {
@@ -173,7 +189,7 @@ function panel(canvas, theme, selections, data, opts) {
         disc(cx + 10, cy + 1, 1.25, dialInk);
     };
     const paintGauge = (kind, cx, cy, radius, staticFace) => {
-        const gauges = PORSCHE_GAUGES[kind];
+        const gauges = kind === 'battery' && porscheBatteryUsesCharge(data) ? [BATTERY_CHARGE_GAUGE] : PORSCHE_GAUGES[kind];
         const scaleRadius = radius - 4;
         const speedometer = kind === 'analogueSpeed';
         const split = kind === 'oilGauges';
@@ -262,11 +278,10 @@ function panel(canvas, theme, selections, data, opts) {
                 if (speedometer && dy > 0 && Math.abs(dx * (unitY - pivotY)) < dy * (measure(unit, 12, 'bold') / 2 + 2)) {
                     foregroundText(unit, unitX, unitY, 12, dialSoft);
                 }
-            } else if (field === 'batteryVolts' && Number.isFinite(data.batteryCharge)) {
-                text(number(data.batteryCharge) + '% SOC', cx, cy + 47, 11, dialInk, 'medium');
             } else if (!speedometer) {
                 text('--', unitX + (split ? 20 : 0), unitY + (split ? 0 : 13), 12, dialInk, 'medium');
             }
+            if (field === 'batteryCharge') text(number(value) + '%', cx, cy + 47, 11, dialInk, 'medium');
         }
     };
     const labels = (cx, cy, label, value, size = 25) => {
@@ -329,21 +344,21 @@ function panel(canvas, theme, selections, data, opts) {
         badge(-32, 55, 64, 19, 4, '#172333');
         text('WAZE', ...place([0, 69]), 11 * k, INK, 'bold', 0.9);
     };
-    const mediaLine = (value, size, weight) => {
+    const mediaLine = (value, size, weight, maxWidth) => {
         if (theme === 'five') weight = 'bold';
-        if (measure(value, size, weight) <= 128) return value;
+        if (measure(value, size, weight, true) <= maxWidth) return value;
         const characters = Array.from(value);
         let lo = 0;
         let hi = characters.length;
         while (lo < hi) {
             const count = Math.ceil((lo + hi) / 2);
             const candidate = characters.slice(0, count).join('') + '...';
-            if (measure(candidate, size, weight) <= 128) lo = count;
+            if (measure(candidate, size, weight, true) <= maxWidth) lo = count;
             else hi = count - 1;
         }
         return characters.slice(0, lo).join('').trim() + '...';
     };
-    const paintSlot = (kind, cx, cy) => {
+    const paintSlot = (kind, cx, cy, radius) => {
         if (kind === 'none') return;
         if (kind === 'clock') return labels(cx, cy, 'TIME', opts.clock || '--:--');
         if (theme === 'five' && (kind === 'oil' || kind === 'coolant')) return temperature(kind, cx, cy);
@@ -364,18 +379,25 @@ function panel(canvas, theme, selections, data, opts) {
             }
             return text(data.pressureUnit || 'TYRES', cx, cy + 45, 12, dialSoft);
         }
-        if (kind === 'waze' && !demo) return paintSlot(selections.fallback, cx, cy);
+        if (kind === 'waze' && !demo) return paintSlot(selections.fallback, cx, cy, radius);
         if (kind === 'media') {
+            const area = theme === 'five' ? porscheMediaArea(cx, cy, radius) : { x: cx, width: 128 };
+            cx = area.x;
             if (demo) return demoCover(cx, cy);
-            box(cx - 25, cy - 44, 50, 50, 5, '#1a2435');
-            disc(cx - 6, cy - 13, 5, INK);
-            line(cx - 2, cy - 13, cx - 2, cy - 32, 3, INK);
-            line(cx - 2, cy - 32, cx + 10, cy - 27, 3, INK);
             const media = data.media;
+            if (media && media.artwork && canvas.drawImage) {
+                const { pixels, side } = media.artwork;
+                canvas.drawImage(pixels, side, side, x(cx - 25), y(cy - 44), 50 * scale, 50 * scale);
+            } else {
+                box(cx - 25, cy - 44, 50, 50, 5, '#1a2435');
+                disc(cx - 6, cy - 13, 5, INK);
+                line(cx - 2, cy - 13, cx - 2, cy - 32, 3, INK);
+                line(cx - 2, cy - 32, cx + 10, cy - 27, 3, INK);
+            }
             if (media && media.title) {
                 if (media.source) text(media.source.toUpperCase(), cx, cy - 54, 10, dialSoft, 'bold');
-                text(mediaLine(media.title, 16, 'bold'), cx, cy + 28, 16, dialInk, 'bold');
-                return text(mediaLine(media.artist || '', 13, 'regular'), cx, cy + 47, 13, dialSoft);
+                text(mediaLine(media.title, 16, 'bold', area.width), cx, cy + 28, 16, dialInk, 'bold', 0, 0, true);
+                return text(mediaLine(media.artist || '', 13, 'regular', area.width), cx, cy + 47, 13, dialSoft, 'regular', 0, 0, true);
             }
             text('NOW PLAYING', cx, cy + 28, 14, dialInk, 'bold');
             return text('No track data', cx, cy + 47, 12, dialSoft);
@@ -487,7 +509,7 @@ function panel(canvas, theme, selections, data, opts) {
         const kind = selections[slot];
         const [cx, cy, radius] = porscheGaugeLayout(slot);
         if (PORSCHE_GAUGES[kind]) paintGauge(kind, cx, cy, radius, false);
-        else paintSlot(kind, cx, cy);
+        else paintSlot(kind, cx, cy, radius);
     });
     if (!opts.nativeNeedles && Number.isFinite(data.rpm)) {
         needle(centreX, centreY, porscheMotionAngle('rpm', data.rpm), 88, lowSpeed ? 3.1 : 3, lowSpeed ? 7 : 0);
@@ -517,5 +539,5 @@ function panel(canvas, theme, selections, data, opts) {
 
 module.exports = {
     panel, SLOTS, SILVER_SLOTS, NAMES, DEMO, PALETTES, INK,
-    porscheGaugeLayout, porscheSpeedLabel, porscheMotionAngle, paintPorscheNeedle,
+    porscheGaugeLayout, porscheSpeedLabel, porscheMotionAngle, paintPorscheNeedle, porscheBatteryUsesCharge,
 };

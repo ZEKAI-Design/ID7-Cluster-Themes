@@ -1,7 +1,7 @@
 'use strict';
 
 const { Canvas } = require('./kit/canvas');
-const { panel } = require('./dials');
+const { panel, porscheBatteryUsesCharge } = require('./dials');
 const { PANEL_WIDTH, PANEL_HEIGHT, panelLayout, BMW_GEAR_WINDOW } = require('./panel-layout');
 const { wazeFullPanel } = require('./waze-full-screen');
 const { vdoPanel } = require('./vdo-retro');
@@ -18,7 +18,9 @@ function renderPanelFrame(theme, choices, data, demo = false, canvas = new Canva
         layout.scale *= resolutionScale;
     }
     if (!demo && faceCache && (theme === 'five' || theme === 'silver' || theme === 'vdoRetro')) {
-        const faceKey = JSON.stringify([theme, choices, canvas.w, canvas.h]);
+        const chargeScale = theme === 'five' && Object.keys(choices).some((key) => choices[key] === 'battery') &&
+            porscheBatteryUsesCharge(data);
+        const faceKey = JSON.stringify([theme, choices, canvas.w, canvas.h, chargeScale]);
         layout.paintBackground = (paint) => {
             if (faceCache.key === faceKey) {
                 canvas.d.set(faceCache.pixels);

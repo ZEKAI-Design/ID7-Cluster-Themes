@@ -1,6 +1,7 @@
 'use strict';
 
 const { TurnIndicator } = require('./turn-indicator');
+const { MediaArtwork, trackKey, front, withArtwork } = require('./media-artwork');
 
 const DATA_MAX_AGE_MS = 12000;
 const MOTION_MAX_AGE_MS = 750;
@@ -38,7 +39,13 @@ function economyMpgUs(raw, unit) {
 }
 
 function mediaLine(value) {
-    return typeof value === 'string' ? value.slice(0, 256).replace(/\s+/g, ' ').trim() : '';
+    if (typeof value !== 'string') return '';
+    // A fixed UTF-16 string can end with an unmatched high surrogate.
+    return value.slice(0, 256).replace(/[\uD800-\uDBFF]$/, '').replace(/\s+/g, ' ').trim();
+}
+
+function mediaName(value) {
+    return (value || '').normalize('NFKC').toLowerCase().trim();
 }
 
 function nowPlaying(metadata) {
@@ -53,19 +60,31 @@ function nowPlaying(metadata) {
         ? metadata.threeRowText.slice(0, 512).split(/[\r\n]+/).map(mediaLine).filter(Boolean) : [];
     const title = pick(([, type]) => type === 'TITLE') || rows[0] || pick(([, type]) => !type || type === '0');
     const artist = pick(([, type]) => type === 'ARTIST') || rows[1] || pick(([value]) => value !== title);
-    return title ? { title, artist: artist === title ? '' : artist } : null;
+    const result = title ? { title, artist: artist === title ? '' : artist } : null;
+    const album = pick(([, type]) => type === 'ALBUM');
+    if (result && album) result.album = album;
+    return result;
 }
 
 function carPlayTrack(value) {
     const items = Array.isArray(value) ? value : value && (value.metadata || value.items);
     if (!Array.isArray(items)) return null;
     const read = (name) => {
-        const item = items.find((entry) => entry && String(entry.key || entry.type).toUpperCase() === name);
+        const ids = { TITLE: 3, ARTIST: 5, ALBUM: 7 };
+        const item = items.find((entry) => {
+            if (!entry) return false;
+            const key = entry.key === undefined ? entry.type : entry.key;
+            return String(key).toUpperCase() === name || String(key) === String(ids[name]);
+        });
         const text = item && item.value;
         return mediaLine(typeof text === 'string' ? text : text && text.stringValue);
     };
     const title = read('TITLE');
-    return title ? { title, artist: read('ARTIST') || read('ALBUM'), source: 'CarPlay' } : null;
+    if (!title) return null;
+    const album = read('ALBUM');
+    const result = { title, artist: read('ARTIST') || album, source: 'CarPlay' };
+    if (album) result.album = album;
+    return result;
 }
 
 class Car {
@@ -76,6 +95,7 @@ class Car {
         this.gearField = 'stage';
         this.motionStats = { speed: { notifications: 0, reads: 0 }, rpm: { notifications: 0, reads: 0 } };
         this.turnIndicator = new TurnIndicator(now);
+        this.mediaArtwork = new MediaArtwork();
     }
 
     put(key, value) {
@@ -109,7 +129,7 @@ class Car {
     snapshot() {
         const data = {};
         for (const key of Object.keys(this.values)) {
-            if (key === 'carPlay' || key === 'carPlayState') continue;
+            if (key === 'carPlay' || key === 'carPlayState' || key === 'hmiTrack') continue;
             // These values can stay unchanged between vehicle notifications.
             data[key] = key === 'odometerKm' || key === 'stage' || key === 'selection' ? this.values[key].value
                 : this.get(key, key === 'speed' || key === 'rpm' ? MOTION_MAX_AGE_MS : DATA_MAX_AGE_MS);
@@ -117,7 +137,17 @@ class Car {
         if (data.stage !== undefined || data.selection !== undefined) data.stage = this.gear();
         const state = this.get('carPlayState');
         const track = this.get('carPlay');
-        if (track && (state === 'PLAY' || (state !== 'STOP' && !data.media))) data.media = track;
+        const hmi = data.media;
+        if (track && (state === 'PLAY' || (state !== 'STOP' && !hmi))) data.media = track;
+        if (data.media && hmi) {
+            const sameSong = mediaName(hmi.title) === mediaName(data.media.title) &&
+                (mediaName(hmi.artist) === mediaName(data.media.artist) ||
+                    mediaName(hmi.artist).startsWith(mediaName(data.media.artist) + ' - ') ||
+                    mediaName(data.media.artist).startsWith(mediaName(hmi.artist) + ' - '));
+            if (data.media === hmi || sameSong) {
+                data.media = withArtwork(data.media, this.mediaArtwork.get(this.get('hmiTrack')));
+            }
+        }
         return data;
     }
 
@@ -209,12 +239,13 @@ class Car {
         }, 5000);
         add('de.bmw.infotainment.hmi.hmimediastate.HmiMediaState', {
             playerMetadata: (value) => {
-                const sink = value && value.sink;
-                if (sink === undefined || sink === 0 || sink === 'FRONT' || !value) {
+                if (front(value)) {
                     this.put('media', nowPlaying(value));
+                    this.put('hmiTrack', trackKey(value));
                 }
             },
-        }, 3000, { instance: 'HMI_CID' });
+            coverArt: (value) => this.mediaArtwork.receive(value),
+        }, 3000, { instance: 'HMI_CID', pollByField: { coverArt: 30000 } });
         add('de.bmw.infotainment.entertainment.mediaplayer.MediaPlayer', {
             currentItemMetadata: (value) => this.put('carPlay', carPlayTrack(value)),
             playerState: (value) => {
