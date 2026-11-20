@@ -1,0 +1,84 @@
+name: Publish ID7 Cluster Themes
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency: mgu-store-release
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build and verify full Han coverage
+        run: |
+          curl -fsSL --retry 3 -o /tmp/jigmo.zip https://kamichikoichi.github.io/jigmo/Jigmo-20250912.zip
+          echo '2fb963ee7bba1d23ccfe81b228422f22da9dc574  /tmp/jigmo.zip' | sha1sum -c -
+          python3 -m pip install 'Pillow==11.3.0' 'fonttools==4.59.2'
+          python3 kit/tools/bake_han.py /tmp/jigmo.zip kit/runtime/fonts/han.bin
+          python3 kit/tools/build.py --omit-sdk zekai_cluster_themes
+          REQUIRE_HAN_FONT=1 node --test test/*.test.js
+      - name: Publish verified Store and USB packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, zipfile
+          dist = pathlib.Path('dist')
+          app = json.loads(pathlib.Path('apps/zekai_cluster_themes/app.json').read_text())
+          package_id, version = app['id'], app['version']
+          tag = f'{package_id}@{version}'
+          name = f'{tag}.tgz'
+          data = (dist / name).read_bytes()
+          entry = {
+              'id': package_id, 'kind': 'app', 'version': version, 'title': app['title'],
+              'author': app['vendor'], 'description': app['description'], 'mguHmi': app['mguHmi'],
+              'requires': {'cluster-render': '0.5.2'},
+              'artifact': {'name': name, 'url': name, 'size': len(data), 'sha256': hashlib.sha256(data).hexdigest()},
+          }
+          catalog = {'schema': 2, 'components': [entry]}
+          usb = f'ID7-Cluster-Themes-{version}-USB.zip'
+          with zipfile.ZipFile(dist / usb, 'w', zipfile.ZIP_DEFLATED) as z:
+              z.writestr('mgu-repo/cluster-themes/catalog.json', json.dumps(catalog, ensure_ascii=False) + '\n')
+              z.writestr(f'mgu-repo/cluster-themes/{name}', data)
+          with zipfile.ZipFile(dist / usb) as z:
+              assert z.testzip() is None
+          entry['artifact']['url'] = f'https://github.com/{os.environ["GITHUB_REPOSITORY"]}/releases/download/{tag}/{name}'
+          (dist / 'catalog.json').write_text(json.dumps(catalog, ensure_ascii=False, indent=2) + '\n')
+          (dist / 'version').write_text(version)
+          PY
+          version="$(cat dist/version)"
+          tag="zekai_cluster_themes@$version"
+          package="$tag.tgz"
+          usb="ID7-Cluster-Themes-$version-USB.zip"
+          runtime_tmp="$(mktemp -d)"
+          gh release download catalog --pattern catalog.json --dir "$runtime_tmp"
+          prior="$(jq -er '.components[] | select(.id=="zekai_cluster_themes") | .version' "$runtime_tmp/catalog.json")"
+          lowest="$(printf '%s\n%s\n' "$version" "$prior" | sort -V | head -n 1)"
+          test "$prior" != "$version" && test "$lowest" = "$prior"
+          gh release create "$tag" "dist/$package" "dist/$usb" --target "$GITHUB_SHA" --draft \
+            --title "ID7 Cluster Themes $version" --notes-file release-notes-0.8.25.md
+          gh release edit "$tag" --draft=false --latest
+          mkdir "$runtime_tmp/new"
+          gh release download "$tag" --pattern "$package" --pattern "$usb" --dir "$runtime_tmp/new"
+          cmp "dist/$package" "$runtime_tmp/new/$package"
+          cmp "dist/$usb" "$runtime_tmp/new/$usb"
+          cp "$runtime_tmp/catalog.json" "$runtime_tmp/catalog-$prior.json"
+          gh release upload catalog "$runtime_tmp/catalog-$prior.json"
+          if ! gh release upload catalog dist/catalog.json --clobber; then
+            gh release upload catalog "$runtime_tmp/catalog.json" --clobber
+            exit 1
+          fi
+          gh release download catalog --pattern catalog.json --dir "$runtime_tmp/new"
+          cmp dist/catalog.json "$runtime_tmp/new/catalog.json"
