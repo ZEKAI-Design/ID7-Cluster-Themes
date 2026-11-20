@@ -22,7 +22,7 @@
 - 12 V 电压和机油压力通过 DME 只读量取得，前者在没有电压数据时可使用 BMW 广播的电池荷电状态。机油压力是绝对压力减去同一控制器报告的大气压力，字段缺失时显示短横线。读取只在相应 Porsche 侧圈启用、仪表可用且收到车速信号时进行。油温和冷却液温度使用原有 BMW 实时车况信号。
 - 在车机的 **Settings → Start selected theme at boot** 中启用自动启动，然后用 **Enable selected theme** 显示所选主题。选择 **BMW original** 会关闭覆盖层并记住此状态；再次启用即可恢复。渲染器断开或画面绘制失败后，客户端会尝试重连并恢复已选主题。面板被其他图层临时占用时等待渲染器释放，日志记录面板状态和错误原因。
 - Waze 圆内窗口需要支持 Cluster Layouts 窗口交接的 Waze on Cluster，例如 [eroobeeroo 版 0.9.107 或更新版本](https://github.com/eroobeeroo/idrive-apps#this-fork)。Waze 还需开启 Cluster 输出。标准居中地图版本会显示你选的备用内容。地图流停止、断开或窗口被另一个 App 占用时也使用备用内容。
-- **Now playing** 优先读取 BMW `MediaPlayer` 的 `CarPlayMedia` 实例，另保留 `HmiMediaState/HMI_CID` 作为前排媒体摘要。车机提供曲名和艺人时显示相应文字，中控预览使用示例封面，仪表媒体栏使用音乐图标。
+- **Now playing** 优先读取 BMW `MediaPlayer` 的 `CarPlayMedia` 实例，并从 `HmiMediaState/HMI_CID` 读取前排曲目和可用的封面图。若车机没有提供封面，可开启 **Online album covers (share track details)**，通过 MGU Store 的网络连接把当前搜索所需曲目信息发送给 MusicBrainz，从 Cover Art Archive 取图。音乐来源缺失或查不到封面时使用原有音乐图标。发布包的媒体字体包含 Unicode 17.0 简繁及扩展汉字。
 
 - G 值选项已删除。旧圆盘选项中的 G 值改为胎压；Waze 的旧 G 值备用选项改为油温和水温。
 
@@ -37,7 +37,9 @@
 ## 构建与验证
 
 - `python3 kit/tools/build.py --omit-sdk zekai_cluster_themes`
-- `node --test test/app.test.js`
+- `node --test test/*.test.js`
+
+GitHub 发布构建先用 CC0 的 [Jigmo 2025-09-12](https://kamichikoichi.github.io/jigmo/) 生成媒体汉字字形包，再检查各汉字扩展区的覆盖。手动构建完整字库时，安装 Pillow 和 fontTools，然后运行 `python3 kit/tools/bake_han.py Jigmo-20250912.zip kit/runtime/fonts/han.bin`。
 
 OAP SDK 由车机安装器提供。仪表渲染客户端来自 Robert Nisipeanu 的 idrive-apps（提交 `a0a4cbf`，MPL-2.0），对应源文件位于 `apps/zekai_cluster_themes/cluster_render_client.js`。中控运行时和构建器沿用 Cabin Ambient 的 MIT 版 idrive7-apps Kit。Waze 窗口接入遵循 eroobeeroo Cluster Layouts 的共享窗口协议。
 
