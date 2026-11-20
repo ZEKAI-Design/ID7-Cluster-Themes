@@ -9,6 +9,7 @@
  */
 const zlib = require('zlib');
 const fonts = require('./fonts');
+const han = require('./han');
 const { t } = require('./i18n');
 
 /* ---------- colours ---------- */
@@ -446,6 +447,18 @@ class Canvas {
     text(str, x, y, size, c, opts) {
         opts = opts || {};
         const s = opts.literal ? String(str) : t(str);
+        if (opts.hanFallback) {
+            const { glyphs, width } = this.mediaGlyphs(s, size, opts);
+            const colour = rgba(c);
+            let pen = opts.align === 'center' ? x - width / 2 : opts.align === 'right' ? x - width : x;
+            for (const { face, glyph, scale, cp, bitmap } of glyphs) {
+                const [gx, gy, gw, gh, ox, oy, adv] = glyph;
+                if (gw && gh) this._blit(face || han.face(cp, bitmap), gx, gy, gw, gh,
+                    pen + ox * scale, y + oy * scale, scale, colour);
+                pen += adv * scale + (opts.spacing || 0);
+            }
+            return width;
+        }
         const f = fonts.get(opts.font || 'label', size, s);
         if (!f) return 0;
         c = rgba(c);
@@ -463,8 +476,44 @@ class Canvas {
     }
 
     textWidth(str, size, opts) {
+        if (opts && opts.hanFallback) return this.mediaGlyphs(opts.literal ? String(str) : t(str), size, opts).width;
         const s = opts && opts.literal ? String(str) : t(str), f = fonts.get((opts && opts.font) || 'label', size, s);
         return f ? fonts.measure(f, s) * (size / f.size) + ((opts && opts.spacing) || 0) * Math.max(0, s.length - 1) : 0;
+    }
+
+    mediaGlyphs(text, size, opts) {
+        const primary = fonts.get(opts.font || 'label', size);
+        let cjk;
+        const glyphs = [];
+        let width = 0;
+        for (const char of text) {
+            const cp = char.codePointAt(0);
+            // Render the base ideograph for variation sequences.
+            if ((cp >= 0xfe00 && cp <= 0xfe0f) || (cp >= 0xe0100 && cp <= 0xe01ef)) continue;
+            let face = primary;
+            let glyph = face.glyphs[cp];
+            let bitmap;
+            if (!glyph && cp >= 0x2e80) {
+                if (!cjk) cjk = fonts.get('cjk', size);
+                if (cjk && cjk.glyphs[cp]) {
+                    face = cjk;
+                    glyph = cjk.glyphs[cp];
+                } else {
+                    bitmap = han.glyph(cp);
+                    if (bitmap) {
+                        face = null;
+                        glyph = han.metrics;
+                    }
+                }
+            }
+            if (!glyph) glyph = primary.glyphs[63];
+            if (!glyph) continue;
+            const scale = size / (face ? face.size : han.metrics[6]);
+            width += glyph[6] * scale;
+            glyphs.push({ face, glyph, scale, cp, bitmap });
+        }
+        width += (opts.spacing || 0) * Math.max(0, glyphs.length - 1);
+        return { glyphs, width };
     }
 
     /** Blit an alpha glyph from the atlas, scaled (bilinear) and tinted. */
