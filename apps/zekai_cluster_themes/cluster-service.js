@@ -1,6 +1,7 @@
 'use strict';
 
 const { EventEmitter } = require('events');
+const { Canvas } = require('./kit/canvas');
 const { ClusterRender } = require('./cluster_render_client');
 const { Car } = require('./car');
 const { MapWindow } = require('./map-window');
@@ -22,6 +23,8 @@ const MAX_SOCKET_BLOCK_MS = 400;
 const LIVE_SPEED_GRACE_MS = 1500;
 const LIVE_SPEED_SETTLE_MS = 750;
 const NATIVE_THEMES = { silver: 'Rolls Royce', five: 'Porsche' };
+const SILVER_BACKGROUND_SCALES = [1, 0.75, 0.5];
+const PIXEL_MEMORY_FULL = "the service's pixel memory is full";
 const RECOVERY_DELAYS_MS = [2000, 5000, 10000, 20000, 30000];
 
 class ClusterService extends EventEmitter {
@@ -59,6 +62,7 @@ class ClusterService extends EventEmitter {
         this.failures = 0;
         this.destroyed = false;
         this.theme = 'stock';
+        this.silverBackgroundScaleIndex = 0;
         this.choices = {};
         this.car = new Car(Date.now, () => this.requestMotionDraw());
         this.engineReadings = new EngineReadings(context, (key, value) => this.car.put(key, value));
@@ -115,6 +119,10 @@ class ClusterService extends EventEmitter {
         if (theme !== this.theme || SLOTS.some((key) => this.choices[key] !== choices[key])) this.engineReadings.cancel();
         if (theme !== this.theme) {
             this.dropNativeMotion();
+            if (this.silverBackgroundScaleIndex) {
+                this.dropPanelImage();
+                this.silverBackgroundScaleIndex = 0;
+            }
             this.nativeMotionFailed = false;
             this.liveSince = null;
             this.missingSince = null;
@@ -244,7 +252,7 @@ class ClusterService extends EventEmitter {
         });
         client.on('layer', (ref, state, reason) => {
             if (!current()) return;
-            if (state === 'error') this.handleNativeMotionError(ref, reason);
+            if (state === 'error' && this.handleRenderError(ref, reason)) return;
             if (ref !== this.ref) return;
             this.layerState = state;
             if (this.log.info) this.log.info('Cluster panel layer: ' + state + (reason ? ' (' + reason + ')' : ''));
@@ -276,7 +284,7 @@ class ClusterService extends EventEmitter {
         });
         client.on('refused', (op, ref, reason) => {
             if (!current()) return;
-            if (this.handleNativeMotionError(ref, reason)) return;
+            if (this.handleRenderError(ref, reason)) return;
             this.log.warn('Cluster renderer refused ' + op + ': ' + reason);
             if ((op === 'image' || op === 'layer' || op === 'frame') && ref === this.ref) this.recover();
             else this.report('Renderer refused the cluster theme');
@@ -298,6 +306,7 @@ class ClusterService extends EventEmitter {
         this.layerState = '';
         this.lastFrame = null;
         this.lastPixels = null;
+        this.scratchPixels = null;
     }
 
     dropNativeMotion() {
@@ -334,13 +343,29 @@ class ClusterService extends EventEmitter {
         this.configure();
     }
 
-    handleNativeMotionError(ref, reason) {
-        if ((this.porscheMotion && this.porscheMotion.owns(ref)) ||
-            (this.silverNeedles && this.silverNeedles.owns(ref)) || (this.silverDigits && this.silverDigits.owns(ref))) {
+    handleRenderError(ref, reason) {
+        const nativeMotion = (this.porscheMotion && this.porscheMotion.owns(ref)) ||
+            (this.silverNeedles && this.silverNeedles.owns(ref)) || (this.silverDigits && this.silverDigits.owns(ref));
+        const starlight = this.silverStarlight && this.silverStarlight.owns(ref);
+        if (this.theme === 'silver' && reason === PIXEL_MEMORY_FULL && (ref === this.ref || nativeMotion || starlight)) {
+            if (this.silverBackgroundScaleIndex + 1 < SILVER_BACKGROUND_SCALES.length) {
+                const scale = SILVER_BACKGROUND_SCALES[++this.silverBackgroundScaleIndex];
+                this.log.warn('Rolls Royce: ' + reason + '; retrying with a ' +
+                    (PANEL_WIDTH * scale) + 'x' + (PANEL_HEIGHT * scale) + ' background');
+                this.recover();
+                return true;
+            }
+            if (!starlight) {
+                this.log.warn('Rolls Royce: ' + reason);
+                this.recover('BMW original · Waiting for renderer memory');
+                return true;
+            }
+        }
+        if (nativeMotion) {
             this.rejectNativeMotion(reason);
             return true;
         }
-        if (this.silverStarlight && this.silverStarlight.owns(ref)) {
+        if (starlight) {
             this.disableStarlight(reason);
             return true;
         }
@@ -410,10 +435,13 @@ class ClusterService extends EventEmitter {
                 this.report('BMW original active');
                 return;
             }
+            const scale = SILVER_BACKGROUND_SCALES[this.silverBackgroundScaleIndex];
+            const iw = PANEL_WIDTH * scale;
+            const ih = PANEL_HEIGHT * scale;
             if (!this.ref) {
                 this.ref = this.client.image({
                     target: 'panel', klass: 'overlay', x: 0, y: 0, w: PANEL_WIDTH, h: PANEL_HEIGHT,
-                    iw: PANEL_WIDTH, ih: PANEL_HEIGHT, sampling: 'nearest', contend: false, fps: PANEL_FPS,
+                    iw, ih, sampling: scale === 1 ? 'nearest' : 'bilinear', contend: false, fps: PANEL_FPS,
                 });
                 if (!this.ref) return this.recover();
             }
@@ -428,7 +456,8 @@ class ClusterService extends EventEmitter {
             const signature = JSON.stringify([this.theme, this.choices, backgroundData]);
             if (this.layerState === 'shown') this.sendNativeMotion(now);
             if (signature !== this.lastFrame) {
-                const frame = renderPanelFrame(this.theme, this.choices, data, false, this.scratchPixels || undefined,
+                const canvas = this.scratchPixels || new Canvas(iw, ih);
+                const frame = renderPanelFrame(this.theme, this.choices, data, false, canvas,
                     this.faceCache, null, { nativeNeedles: native, nativeDigits: native });
                 if (!sendPanelFrame(this.client, this.ref, frame, this.lastPixels)) return;
                 this.scratchPixels = this.lastPixels;
@@ -441,11 +470,11 @@ class ClusterService extends EventEmitter {
         }
     }
 
-    recover() {
+    recover(message = 'Theme interrupted; reconnecting automatically') {
         const delay = RECOVERY_DELAYS_MS[Math.min(this.failures++, RECOVERY_DELAYS_MS.length - 1)];
         this.retryAt = Date.now() + delay;
         this.releaseClient();
-        this.report('Theme interrupted; reconnecting automatically');
+        this.report(message);
     }
 
     releaseClient() {
@@ -482,6 +511,7 @@ class ClusterService extends EventEmitter {
         this.timer = null;
         this.retryAt = 0;
         this.failures = 0;
+        this.silverBackgroundScaleIndex = 0;
         this.nativeMotionFailed = false;
         this.liveSince = null;
         this.missingSince = null;

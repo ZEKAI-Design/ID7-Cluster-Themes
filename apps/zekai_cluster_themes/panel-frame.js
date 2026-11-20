@@ -11,6 +11,12 @@ function renderPanelFrame(theme, choices, data, demo = false, canvas = new Canva
     const liveFullMap = theme === 'wazeFull' && data.mapSlot === 'fullMap';
     const base = liveFullMap ? '#00000000' : theme === 'vdoRetro' ? '#070809' : '#030507';
     const layout = panelLayout(theme);
+    const resolutionScale = canvas.w / PANEL_WIDTH;
+    if (theme === 'silver') {
+        layout.x *= resolutionScale;
+        layout.y *= resolutionScale;
+        layout.scale *= resolutionScale;
+    }
     if (!demo && faceCache && (theme === 'five' || theme === 'silver' || theme === 'vdoRetro')) {
         const faceKey = JSON.stringify([theme, choices, canvas.w, canvas.h]);
         layout.paintBackground = (paint) => {
@@ -35,9 +41,12 @@ function renderPanelFrame(theme, choices, data, demo = false, canvas = new Canva
     }
     if (theme === 'silver' && !demo) {
         const { x, y, w, h } = BMW_GEAR_WINDOW;
-        for (let row = y; row < y + h; row++) {
-            const start = (row * canvas.w + x) * 4;
-            canvas.d.fill(0, start, start + w * 4);
+        const left = Math.floor(x * resolutionScale);
+        const right = Math.ceil((x + w) * resolutionScale);
+        const top = Math.floor(y * resolutionScale);
+        const bottom = Math.ceil((y + h) * resolutionScale);
+        for (let row = top; row < bottom; row++) {
+            canvas.d.fill(0, (row * canvas.w + left) * 4, (row * canvas.w + right) * 4);
         }
     }
     return canvas;

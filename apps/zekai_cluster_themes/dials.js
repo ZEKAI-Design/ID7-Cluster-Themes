@@ -507,8 +507,11 @@ function panel(canvas, theme, selections, data, opts) {
             fill < 0.12 ? '#ff715d' : '#dce7ff');
     }
     const clock = opts.clock || '--:--';
-    text(clock, 225, 282, 15, INK, 'bold');
-    text(number(data.ambient) + '°C', 735, 282, 15, INK, 'bold');
+    // Match the factory gear letter's baseline and visible height on the G05 panel.
+    const statusBaseline = 304;
+    const statusSize = 21;
+    text(clock, 225, statusBaseline, statusSize, INK, 'bold');
+    text(number(data.ambient) + '°C', 735, statusBaseline, statusSize, INK, 'bold');
 
 }
 
