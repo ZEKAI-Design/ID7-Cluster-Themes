@@ -12,7 +12,7 @@ const { panel, DEMO, SLOTS, PALETTES } = require(app + 'dials');
 const { SILVER_PALETTES, TANK_LITRES } = require(app + 'silver-dials');
 const { vdoPanel } = require(app + 'vdo-retro');
 const { PANEL_WIDTH, PANEL_HEIGHT, panelLayout, PORSCHE_CENTRE, PORSCHE_DIALS, BMW_GEAR_WINDOW } = require(app + 'panel-layout');
-const { FONTS } = require(app + 'instrument-type');
+const { FONTS, TEXT_SIZE_RATIO } = require(app + 'instrument-type');
 const { Canvas } = require('../kit/runtime/canvas');
 const { get: getFont } = require('../kit/runtime/fonts');
 const { Recorder, play } = require('../kit/runtime/record');
@@ -211,12 +211,19 @@ test('Porsche palettes share the lower readout positions and coloured rings open
             const [, speedX, speedY, , speedSize, speedColour] = label('126');
             const [, unitX, unitY, , unitSize] = label('km/h');
             const [, rangeX, rangeY] = label('418 km');
+            const [, clockX, clockBaseline, , clockSize] = label('10:53');
+            const [, temperatureX, temperatureBaseline, , temperatureSize] = label('15°C');
             if (faceColour === 'silver') assert.equal(speedColour, '#ffffff');
             assert.equal(speedX, cx);
             assert.equal(unitX, cx);
             assert.equal(rangeX, cx);
             assert.ok(unitY > speedY && unitSize < speedSize);
             assert.equal(rangeY, cy + 121);
+            assert.deepEqual([clockX, temperatureX], [225, 735]);
+            assert.equal(clockBaseline, 304);
+            assert.equal(temperatureBaseline, clockBaseline);
+            assert.equal(clockSize, 21 * TEXT_SIZE_RATIO * 0.9);
+            assert.equal(temperatureSize, clockSize);
             if (speedPosition === 'lower') {
                 assert.equal(speedY, cy + 75);
                 assert.equal(unitY, cy + 89);
@@ -360,8 +367,8 @@ test('Porsche gauges draw real readings and omit the needle when voltage or pres
     for (const value of ['V', 'bar', '°C', '0.0', '3.0', '6.0']) assert.ok(label(value), value);
     assert.equal(labels.filter(({ value }) => value === '87').length, 1);
     for (const value of ['87 km/h', 'VEHICLE SPEED', 'OIL PRESSURE', 'OIL TEMP', 'COOLANT']) assert.equal(label(value), undefined);
-    assert.deepEqual([label('11:17').x, label('11:17').y], [225, 282]);
-    assert.deepEqual([label('13°C').x, label('13°C').y], [735, 282]);
+    assert.deepEqual([label('11:17').x, label('11:17').y], [225, 304]);
+    assert.deepEqual([label('13°C').x, label('13°C').y], [735, 304]);
     labels.length = 0;
     needles = 0;
     panel(canvas, 'five', slots, { batteryCharge: 83 }, {});
@@ -1311,6 +1318,80 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
         assert.equal(restarted.client, null);
         assert.equal(remounted.frames, renderedFrames);
 
+        // The service keeps two copies of images and assets and shares its limit with other clients.
+        const pixelLimit = 16 * 1024 * 1024;
+        const memoryFull = "the service's pixel memory is full";
+        function refusedAllocation(renderer, otherBytes) {
+            const allocations = [...renderer.images].map(([ref, { iw, ih }]) => [ref, 'layer', iw * ih * 8])
+                .concat([...renderer.assets].map(([ref, { w, h, format }]) => [ref, 'asset', w * h * (format === 'r8' ? 2 : 8)]))
+                .sort(([first], [second]) => first - second);
+            return allocations.find(([, , bytes]) => (otherBytes += bytes) > pixelLimit);
+        }
+        function reconnectSilver(ms) {
+            now += ms;
+            sendZero();
+            interval();
+            const renderer = restarted.client;
+            assert.ok(renderer && renderer.connected);
+            renderer.emit('ready');
+            return renderer;
+        }
+
+        settings.set('silver_needleEffect', 'starlight');
+        restarted.retryNativeMotion();
+        const fullSize = restarted.client;
+        fullSize.emit('ready');
+        const [refusedRef, op] = refusedAllocation(fullSize, 4450000);
+        assert.equal(op, 'asset');
+        assert.ok(restarted.silverDigits.owns(refusedRef));
+        fullSize.emit('refused', op, refusedRef, memoryFull);
+        assert.equal(fullSize.connected, false);
+        assert.equal(restarted.client, null);
+        assert.match(restarted.status(), /reconnecting/);
+        // Additional errors for the rejected asset can still arrive from the old socket.
+        fullSize.emit('layer', refusedRef, 'error', memoryFull);
+        const reduced = reconnectSilver(2000);
+        assert.deepEqual([reduced.args.w, reduced.args.h, reduced.args.iw, reduced.args.ih], [1920, 720, 1440, 540]);
+        assert.equal(reduced.args.sampling, 'bilinear');
+        assert.equal(reduced.bytes, 1440 * 540 * 4);
+        assert.equal(refusedAllocation(reduced, 1920 * 720 * 6), undefined);
+        const gearAlpha = (x, y) => restarted.lastPixels.d[(y * 1440 + x) * 4 + 3];
+        assert.equal(gearAlpha(1035, 487), 0);
+        assert.equal(gearAlpha(1094, 539), 0);
+        assert.equal(gearAlpha(1034, 487), 255);
+        reduced.emit('layer', restarted.ref, 'shown');
+        assert.equal(restarted.status(), 'Selected theme active');
+        now += 50;
+        handlers.get(vehicle2).statusCarSpeed2({ speedVehicleCentreOfGravity: 74 * 64 });
+        handlers.get(cds).statusEngineSpeed2({ actualValueRPMEngineCrankshaft: 2050 * 4 });
+        motion();
+        assert.equal(restarted.silverDigits.labels[0].value, '74');
+        assert.equal(restarted.silverDigits.labels[1].value, '2050');
+        assert.equal(reduced.transforms.get(restarted.silverNeedles.layers[0].ref).rotate, -136 + 74 / 260 * 272);
+        now += 50;
+        handlers.get(vehicle2).statusCarSpeed2({ speedVehicleCentreOfGravity: 82 * 64 });
+        motion();
+        assert.ok(restarted.silverStarlight.layers.some(({ ref }) => reduced.transforms.get(ref)?.visible));
+        assert.equal(reduced.frames, 1);
+
+        now += 50;
+        handlers.get('de.bmw.infrastructure.VehicleInformation').statusGearboxDrive({ statusActualStageDrive: 'D' });
+        interval();
+        assert.equal(reduced.frames, 2);
+        assert.ok(reduced.rects.every(({ x, y, w, h }) => x + w <= 1440 && y + h <= 540));
+
+        // A busy shared renderer may also reject the smaller background on a later reconnect.
+        const [backgroundRef] = refusedAllocation(reduced, 10700000);
+        assert.equal(backgroundRef, restarted.ref);
+        reduced.emit('layer', backgroundRef, 'error', memoryFull);
+        assert.equal(reduced.connected, false);
+        const smallest = reconnectSilver(2000);
+        assert.deepEqual([smallest.args.w, smallest.args.h, smallest.args.iw, smallest.args.ih], [1920, 720, 960, 360]);
+        assert.equal(smallest.bytes, 960 * 360 * 4);
+        assert.equal(refusedAllocation(smallest, 10700000), undefined);
+        smallest.emit('layer', restarted.ref, 'shown');
+        assert.equal(restarted.status(), 'Selected theme active');
+
         const mapRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cluster-full-map-test-'));
         const status = path.join(mapRoot, 'status.json');
         const map = new MapWindow(bgContext.log, { dir: mapRoot, status, now: () => now });
@@ -1337,7 +1418,8 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
             assert.equal(renderer.images.size, 0);
             wazeStatus('panel', 'showing');
             assert.equal(renderer.images.size, 1);
-            assert.equal(renderer.frames, 1);
+            assert.equal(renderer.frames, 2);
+            assert.deepEqual([...renderer.images.values()].map(({ iw, ih }) => [iw, ih]), [[1920, 720]]);
             const rgba = (x, y) => restarted.lastPixels.d.slice((y * PANEL_WIDTH + x) * 4, (y * PANEL_WIDTH + x) * 4 + 4);
             assert.deepEqual(Array.from(rgba(960, 360)), [0, 0, 0, 0]);
             assert.ok(rgba(192, 30)[3] > 0 && rgba(192, 703)[3] > 0);
@@ -1350,7 +1432,7 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
             wazeStatus('map', 'showing');
             wazeStatus('panel', 'showing');
             assert.notEqual(restarted.ref, lastRef);
-            assert.equal(renderer.frames, 2);
+            assert.equal(renderer.frames, 3);
             settings.set('instrumentTheme', 'stock');
             assert.equal(fs.existsSync(map.file), false);
         } finally {
