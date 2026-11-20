@@ -1,6 +1,6 @@
 'use strict';
 
-const { silverDials } = require('./silver-dials');
+const { silverDials, SILVER_TEXT } = require('./silver-dials');
 const { instrumentType } = require('./instrument-type');
 const { PORSCHE_CENTRE, PORSCHE_DIALS, SILVER_SIDE_DIALS } = require('./panel-layout');
 
@@ -93,6 +93,7 @@ function panel(canvas, theme, selections, data, opts) {
     const dialInk = theme === 'five' && palette.ink || INK;
     const dialSoft = theme === 'five' && palette.soft || SOFT;
     const text = (value, cx, cy, size, colour = INK, weight = 'regular', spacing = 0, embolden = 0) => {
+        if (theme === 'silver') colour = SILVER_TEXT;
         const faceWeight = theme === 'five' ? 'bold' : weight;
         if (theme === 'five' && palette.textShadow) {
             if (palette.outline) {

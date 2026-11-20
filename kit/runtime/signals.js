@@ -50,6 +50,7 @@ function loadConfig(iface) {
  * opts.pollMs: also re-read those fields that often while the provider is available - for
  * fields a car may not notify (BMW's x_call only ever reads TPMS, it never subscribes).
  * opts.pollByField: minimum interval for individual getters that need slower polling.
+ * opts.notifyFreshMs: skip fallback reads while a field sends recent notifications.
  */
 async function watch(iface, instance, handlers, log, opts) {
     const res = { iface, available: false, proxy: null, error: null, shutdown: () => Promise.resolve() };
@@ -61,40 +62,62 @@ async function watch(iface, instance, handlers, log, opts) {
         res.shutdown = () => Promise.resolve().then(() => p.shutdown && p.shutdown()).catch(() => {});
         const fields = Object.keys(handlers || {});
         const notified = Object.create(null);
+        const lastNotification = Object.create(null);
         const pending = new Set();
         const lastRequested = Object.create(null);
-        const fetchAll = (force = false) => fields.forEach((f) => {
+        let availabilityRevision = 0;
+        const fetchAll = () => fields.forEach((f) => {
             if (!cfg.fields || !cfg.fields[f] || !cfg.fields[f].getter || pending.has(f)) return;
             if (opts && opts.shouldPoll && !opts.shouldPoll()) return;
             const revision = notified[f];
+            const availability = availabilityRevision;
             const started = Date.now();
             const minInterval = opts && opts.pollByField && opts.pollByField[f];
-            if (!force && minInterval && started - lastRequested[f] < minInterval) return;
+            const fresh = opts && opts.notifyFreshMs && opts.notifyFreshMs[f];
+            if (minInterval && started - lastRequested[f] < minInterval) return;
+            if (fresh && started - lastNotification[f] < fresh) return;
             lastRequested[f] = started;
             const timeout = opts && opts.readTimeoutMs || 3000;
             pending.add(f);
             p.getValue(f, timeout).then((v) => {
-                if (notified[f] === revision && Date.now() - started <= timeout) handlers[f](v);
+                if (availability === availabilityRevision && notified[f] === revision && Date.now() - started <= timeout) handlers[f](v, 'getter');
             }).catch(() => {}).then(() => pending.delete(f));
         });
         await nativeTick(() => {
             try {
                 return p.subscribeToAvailability((available) => {
+                    if (res.available !== Boolean(available)) {
+                        availabilityRevision++;
+                        for (const field of fields) {
+                            delete lastRequested[field];
+                            delete lastNotification[field];
+                        }
+                    }
                     res.available = Boolean(available);
-                    if (available) setImmediate(() => fetchAll(true));
+                    if (available) setImmediate(() => { if (res.available) fetchAll(); });
                     else if (opts && opts.onUnavailable) opts.onUnavailable();
                 });
             } catch (e) { return null; /* older binding */ }
         });
         for (const f of fields) {
             try {
-                await nativeTick(() => p.subscribe({ name: f, onReceive: (v) => { notified[f] = (notified[f] || 0) + 1; try { handlers[f](v); } catch (e) { if (log) log.warn(iface + '.' + f + ': ' + e); } } }));
+                await nativeTick(() => p.subscribe({
+                    name: f,
+                    onReceive: (v) => {
+                        notified[f] = (notified[f] || 0) + 1;
+                        lastNotification[f] = Date.now();
+                        try { handlers[f](v, 'notification'); }
+                        catch (e) { if (log) log.warn(iface + '.' + f + ': ' + e); }
+                    },
+                }));
             } catch (e) {
                 if (log) log.warn('subscribe ' + iface + '.' + f + ': ' + e);
             }
         }
         if (p.isAvailable && p.isAvailable()) { res.available = true; fetchAll(); }
-        if (opts && opts.pollMs) setInterval(() => { if (res.available) setImmediate(fetchAll); }, opts.pollMs);
+        if (opts && opts.pollMs) setInterval(() => {
+            if (res.available) setImmediate(() => { if (res.available) fetchAll(); });
+        }, opts.pollMs);
     } catch (e) {
         res.error = String(e);
         if (log) log.warn('signals ' + iface + ': ' + e);

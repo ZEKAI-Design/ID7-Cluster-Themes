@@ -7,12 +7,19 @@ const { MapWindow } = require('./map-window');
 const { SLOTS, SILVER_SLOTS } = require('./dials');
 const { PANEL_WIDTH, PANEL_HEIGHT } = require('./panel-layout');
 const { renderPanelFrame, sendPanelFrame } = require('./panel-frame');
-const { updateSilverTrail } = require('./silver-dials');
+const { SilverNeedles } = require('./silver-needles');
+const { SilverDigits } = require('./silver-digits');
+const { SilverStarlight } = require('./silver-starlight');
 const { clusterClock } = require('./cluster-clock');
 const { EngineReadings } = require('./engine-readings');
 
 const DRAW_INTERVAL_MS = 50;
+const NATIVE_MOTION_INTERVAL_MS = 16;
 const PANEL_FPS = 20;
+const MOTION_LOG_INTERVAL_MS = 15000;
+const MAX_SOCKET_BLOCK_MS = 400;
+const SILVER_STALE_GRACE_MS = 1500;
+const SILVER_LIVE_SETTLE_MS = 750;
 const RECOVERY_DELAYS_MS = [2000, 5000, 10000, 20000, 30000];
 
 class ClusterService extends EventEmitter {
@@ -26,12 +33,22 @@ class ClusterService extends EventEmitter {
         this.connected = false;
         this.timer = null;
         this.motionTimer = null;
+        this.nativeMotionTimer = null;
+        this.lastNativeMotionAt = -Infinity;
+        this.nextMotionLogAt = 0;
         this.lastDrawAt = -Infinity;
         this.lastFrame = null;
         this.lastPixels = null;
         this.scratchPixels = null;
         this.faceCache = {};
-        this.silverTrail = null;
+        this.silverNeedles = null;
+        this.silverDigits = null;
+        this.silverStarlight = null;
+        this.starlightFailed = false;
+        this.silverFailed = false;
+        this.liveSince = null;
+        this.missingSince = null;
+        this.blockedSince = null;
         this.message = 'Starting cluster theme service';
         this.mapMessage = '';
         this.layerState = '';
@@ -93,32 +110,101 @@ class ClusterService extends EventEmitter {
         }
         const choices = this.selections(theme);
         if (theme !== this.theme || SLOTS.some((key) => this.choices[key] !== choices[key])) this.engineReadings.cancel();
+        if (theme !== 'silver') this.dropSilverMotion();
+        if (theme !== this.theme) {
+            this.silverFailed = false;
+            this.liveSince = null;
+            this.missingSince = null;
+            this.lastDrawAt = -Infinity;
+        }
+        if (choices.needleEffect !== this.choices.needleEffect) this.starlightFailed = false;
         this.theme = theme;
         this.choices = choices;
         this.lastFrame = null;
+        if (this.layerState === 'shown') this.reportActive();
         if (!this.timer) this.timer = setInterval(() => this.tick(), DRAW_INTERVAL_MS);
         this.tick();
     }
 
     tick() {
+        const now = Date.now();
+        if (this.theme === 'silver' && !this.silverAvailable(now)) return;
         if (this.client) {
             this.draw();
+            if (this.layerState === 'shown' && this.log.info && now >= this.nextMotionLogAt) {
+                this.nextMotionLogAt = now + MOTION_LOG_INTERVAL_MS;
+                const needles = this.silverNeedles ? 'native' : 'bitmap';
+                const digits = this.silverDigits ? 'native' : 'bitmap';
+                this.log.info('Cluster motion (' + this.theme + ', needles ' + needles + ', digits ' + digits + '): ' +
+                    this.car.takeMotionStats());
+            }
             if (this.connected && this.layerState !== 'hidden' && this.layerState !== 'suspended' &&
                 this.theme === 'five' && Number.isFinite(this.car.get('speed'))) {
                 this.engineReadings.update(SLOTS.map((key) => this.choices[key]));
             }
         }
-        else if (Date.now() >= this.retryAt) this.connect();
+        else if (now >= this.retryAt) this.connect();
+    }
+
+    silverAvailable(now) {
+        if (this.silverFailed) return false;
+        if (Number.isFinite(this.car.motion().speed)) {
+            this.missingSince = null;
+            if (this.liveSince === null) this.liveSince = now;
+            return Boolean(this.client) || now - this.liveSince >= SILVER_LIVE_SETTLE_MS;
+        }
+        this.liveSince = null;
+        if (this.client && this.lastFrame) {
+            if (this.missingSince === null) this.missingSince = now;
+            if (now - this.missingSince < SILVER_STALE_GRACE_MS) return true;
+        }
+        if (this.client) this.releaseClient();
+        this.report('BMW original · Waiting for live speed');
+        return false;
     }
 
     requestMotionDraw() {
-        if (!this.connected || !this.ref || this.motionTimer) return;
+        if (!this.connected || !this.ref) return;
+        if (this.silverNeedles || this.silverDigits) {
+            this.scheduleNativeMotion();
+            return;
+        }
         const delay = DRAW_INTERVAL_MS - (Date.now() - this.lastDrawAt);
-        if (delay <= 0) return this.draw();
+        if (delay <= 0) {
+            if (this.motionTimer) clearTimeout(this.motionTimer);
+            this.motionTimer = null;
+            return this.draw();
+        }
+        if (this.motionTimer) return;
         this.motionTimer = setTimeout(() => {
             this.motionTimer = null;
             this.draw();
         }, delay);
+    }
+
+    scheduleNativeMotion() {
+        if (this.nativeMotionTimer || !this.connected || this.client.blocked || this.layerState !== 'shown') return;
+        const delay = Math.max(0, NATIVE_MOTION_INTERVAL_MS - (Date.now() - this.lastNativeMotionAt));
+        this.nativeMotionTimer = setTimeout(() => {
+            this.nativeMotionTimer = null;
+            try { this.sendNativeMotion(Date.now()); }
+            catch (error) {
+                this.log.warn('Cluster native motion: ' + (error && error.message || error));
+                this.recover();
+            }
+        }, delay);
+    }
+
+    sendNativeMotion(now) {
+        if ((!this.silverNeedles && !this.silverDigits) || !this.connected || this.client.blocked ||
+            this.layerState !== 'shown' || now - this.lastNativeMotionAt < NATIVE_MOTION_INTERVAL_MS) return;
+        this.lastNativeMotionAt = now;
+        this.updateSilverMotion(this.car.motion(), true, now);
+    }
+
+    reportActive() {
+        const starlightUnavailable = this.theme === 'silver' && this.choices.needleEffect === 'starlight' && this.starlightFailed;
+        this.report(starlightUnavailable ? 'Selected theme active · Starlight unavailable' : 'Selected theme active');
     }
 
     connect() {
@@ -134,17 +220,11 @@ class ClusterService extends EventEmitter {
                 return;
             }
             this.connected = true;
-            if (!this.ref) {
-                this.ref = client.image({
-                    target: 'panel', klass: 'overlay', x: 0, y: 0, w: PANEL_WIDTH, h: PANEL_HEIGHT,
-                    iw: PANEL_WIDTH, ih: PANEL_HEIGHT, sampling: 'nearest', contend: false, fps: PANEL_FPS,
-                });
-                if (!this.ref) return this.recover();
-            }
             this.lastFrame = null;
             this.lastPixels = null;
             this.layerState = '';
             this.lastDrawAt = -Infinity;
+            this.lastNativeMotionAt = -Infinity;
             this.draw();
         });
         client.on('disconnected', () => {
@@ -152,35 +232,49 @@ class ClusterService extends EventEmitter {
             this.engineReadings.cancel();
             this.connected = false;
             this.lastFrame = null;
-            this.silverTrail = null;
+            this.blockedSince = null;
+            this.updateSilverMotion({}, false);
             this.map.release();
+            if (this.theme === 'wazeFull') this.dropPanelImage();
             this.report('Renderer reconnecting; selected theme will resume');
         });
         client.on('layer', (ref, state, reason) => {
-            if (!current() || ref !== this.ref) return;
+            if (!current()) return;
+            if (state === 'error') this.handleSilverMotionError(ref, reason);
+            if (ref !== this.ref) return;
             this.layerState = state;
             if (this.log.info) this.log.info('Cluster panel layer: ' + state + (reason ? ' (' + reason + ')' : ''));
             if (state === 'shown') {
                 this.failures = 0;
-                this.report('Selected theme active');
+                this.reportActive();
+                if (this.silverNeedles || this.silverDigits) this.scheduleNativeMotion();
             }
             else if (state === 'suspended' || state === 'hidden') {
                 this.engineReadings.cancel();
-                this.silverTrail = null;
+                this.updateSilverMotion({}, false);
                 this.map.wait('');
                 this.setMapMessage('');
                 this.report('Instrument panel temporarily unavailable');
             } else if (state === 'error') this.report('Renderer reported a cluster layer error');
+        });
+        client.on('drain', () => {
+            if (current() && !client.blocked) this.requestMotionDraw();
         });
         client.on('target', (target, state, holder, reason) => {
             if (current() && target === 'panel' && this.log.info) {
                 this.log.info('Cluster panel target: ' + state + (reason ? ' (' + reason + ')' : ''));
             }
         });
+        client.on('budget', (cap, ceiling, reason) => {
+            if (current() && this.log.info) {
+                this.log.info('Cluster renderer upload budget: ' + cap + '/' + ceiling + ' KB/s (' + reason + ')');
+            }
+        });
         client.on('refused', (op, ref, reason) => {
             if (!current()) return;
+            if (this.handleSilverMotionError(ref, reason)) return;
             this.log.warn('Cluster renderer refused ' + op + ': ' + reason);
-            if (op === 'image' || op === 'frame') this.recover();
+            if ((op === 'image' || op === 'layer' || op === 'frame') && ref === this.ref) this.recover();
             else this.report('Renderer refused the cluster theme');
         });
         client.connect();
@@ -193,11 +287,97 @@ class ClusterService extends EventEmitter {
         this.emit('status', this.status());
     }
 
+    dropPanelImage() {
+        if (!this.ref) return;
+        this.client.drop(this.ref);
+        this.ref = null;
+        this.layerState = '';
+        this.lastFrame = null;
+        this.lastPixels = null;
+    }
+
+    dropSilverMotion() {
+        if (this.silverNeedles) this.silverNeedles.drop();
+        if (this.silverDigits) this.silverDigits.drop();
+        if (this.silverStarlight) this.silverStarlight.drop();
+        this.silverNeedles = null;
+        this.silverDigits = null;
+        this.silverStarlight = null;
+    }
+
+    updateSilverMotion(data, shown, now = Date.now()) {
+        if (this.silverNeedles) this.silverNeedles.update(data, this.choices, shown);
+        if (this.silverDigits) this.silverDigits.update(data, this.choices, shown);
+        if (this.silverStarlight && this.silverStarlight.update(data.speed, shown, now)) this.scheduleNativeMotion();
+    }
+
+    rejectSilverMotion(reason) {
+        this.log.warn('Rolls Royce motion layer unavailable: ' + reason);
+        this.silverFailed = true;
+        this.releaseClient();
+        this.report('BMW original · Rolls Royce live rendering unavailable');
+    }
+
+    handleSilverMotionError(ref, reason) {
+        if ((this.silverNeedles && this.silverNeedles.owns(ref)) || (this.silverDigits && this.silverDigits.owns(ref))) {
+            this.rejectSilverMotion(reason);
+            return true;
+        }
+        if (this.silverStarlight && this.silverStarlight.owns(ref)) {
+            this.disableStarlight(reason);
+            return true;
+        }
+        return false;
+    }
+
+    disableStarlight(reason) {
+        this.log.warn('Rolls Royce Starlight unavailable: ' + reason);
+        this.silverStarlight.drop();
+        this.silverStarlight = null;
+        this.starlightFailed = true;
+        if (this.layerState === 'shown') this.reportActive();
+    }
+
+    prepareSilverMotion() {
+        if (!this.silverNeedles) this.silverNeedles = new SilverNeedles(this.client);
+        if (!this.silverNeedles.prepare(this.choices)) {
+            this.rejectSilverMotion('could not prepare the needle images');
+            return false;
+        }
+        if (!this.silverDigits) {
+            this.silverDigits = new SilverDigits(this.client);
+            if (!this.silverDigits.prepare()) {
+                this.rejectSilverMotion('could not prepare the digit glyphs');
+                return false;
+            }
+        }
+        if (this.choices.needleEffect === 'starlight' && !this.starlightFailed && !this.silverStarlight) {
+            this.silverStarlight = new SilverStarlight(this.client);
+            if (!this.silverStarlight.prepare()) this.disableStarlight('could not prepare the trail layers');
+            else this.silverStarlight.update(this.car.motion().speed, this.layerState === 'shown', Date.now());
+        }
+        if (this.choices.needleEffect !== 'starlight' && this.silverStarlight) {
+            this.silverStarlight.drop();
+            this.silverStarlight = null;
+        }
+        return true;
+    }
+
     draw() {
-        if (!this.client || !this.connected || !this.ref || this.theme === 'stock' || this.client.blocked) return;
+        if (!this.client || !this.connected || this.theme === 'stock') return;
         const now = Date.now();
-        if (now - this.lastDrawAt < DRAW_INTERVAL_MS) return;
+        if (this.client.blocked) {
+            if (this.blockedSince === null) this.blockedSince = now;
+            if (this.layerState === 'shown' && now - this.blockedSince >= MAX_SOCKET_BLOCK_MS) {
+                this.log.warn('Cluster renderer cannot accept current instrument readings; releasing the panel');
+                this.recover();
+            }
+            return;
+        }
+        this.blockedSince = null;
         try {
+            this.sendNativeMotion(now);
+            if (now - this.lastDrawAt < DRAW_INTERVAL_MS) return;
             const data = this.car.snapshot();
             if (this.theme === 'vdoRetro') data.turnLamp = this.car.turnIndicator.lit(now);
             // The speed text uses whole km/h. Avoid repainting the panel for
@@ -207,21 +387,34 @@ class ClusterService extends EventEmitter {
             const panelAvailable = this.layerState !== 'suspended' && this.layerState !== 'hidden';
             data.mapSlot = panelAvailable ? this.map.update(this.choices, this.theme) : null;
             this.setMapMessage(panelAvailable ? this.map.message : '');
-            if (panelAvailable && this.theme === 'silver' && this.choices.needleEffect === 'starlight') {
-                if (!this.silverTrail) this.silverTrail = {};
-                updateSilverTrail(this.silverTrail, data.speed, now);
-            } else this.silverTrail = null;
-            const animatedAt = this.silverTrail && this.silverTrail.samples.length ? now : null;
-            const signature = JSON.stringify([this.theme, this.choices, data, animatedAt]);
-            if (signature === this.lastFrame) return;
-
-            this.lastDrawAt = now;
-            const frame = renderPanelFrame(this.theme, this.choices, data, false, this.scratchPixels || undefined,
-                this.faceCache, this.silverTrail);
-            if (!sendPanelFrame(this.client, this.ref, frame, this.lastPixels)) return;
-            this.scratchPixels = this.lastPixels;
-            this.lastPixels = frame;
-            this.lastFrame = signature;
+            // The native BMW map can still display while Waze waits or uses the stock map slot.
+            if (this.theme === 'wazeFull' && data.mapSlot !== 'fullMap') {
+                this.dropPanelImage();
+                this.report('BMW original active');
+                return;
+            }
+            if (!this.ref) {
+                this.ref = this.client.image({
+                    target: 'panel', klass: 'overlay', x: 0, y: 0, w: PANEL_WIDTH, h: PANEL_HEIGHT,
+                    iw: PANEL_WIDTH, ih: PANEL_HEIGHT, sampling: 'nearest', contend: false, fps: PANEL_FPS,
+                });
+                if (!this.ref) return this.recover();
+            }
+            const native = this.theme === 'silver';
+            if (native && !this.prepareSilverMotion()) return;
+            const backgroundData = native
+                ? Object.assign({}, data, { speed: undefined, rpm: undefined }) : data;
+            const signature = JSON.stringify([this.theme, this.choices, backgroundData]);
+            if (this.layerState === 'shown') this.sendNativeMotion(now);
+            if (signature !== this.lastFrame) {
+                this.lastDrawAt = now;
+                const frame = renderPanelFrame(this.theme, this.choices, data, false, this.scratchPixels || undefined,
+                    this.faceCache, null, { nativeNeedles: native, nativeDigits: native });
+                if (!sendPanelFrame(this.client, this.ref, frame, this.lastPixels)) return;
+                this.scratchPixels = this.lastPixels;
+                this.lastPixels = frame;
+                this.lastFrame = signature;
+            }
         } catch (error) {
             this.log.warn('cluster theme draw: ' + (error && error.message || error));
             this.recover();
@@ -239,6 +432,10 @@ class ClusterService extends EventEmitter {
         this.engineReadings.cancel();
         if (this.motionTimer) clearTimeout(this.motionTimer);
         this.motionTimer = null;
+        if (this.nativeMotionTimer) clearTimeout(this.nativeMotionTimer);
+        this.nativeMotionTimer = null;
+        this.lastNativeMotionAt = -Infinity;
+        this.nextMotionLogAt = 0;
         this.lastDrawAt = -Infinity;
         const client = this.client;
         this.client = null;
@@ -248,7 +445,11 @@ class ClusterService extends EventEmitter {
         this.lastPixels = null;
         this.scratchPixels = null;
         this.faceCache = {};
-        this.silverTrail = null;
+        this.silverNeedles = null;
+        this.silverDigits = null;
+        this.silverStarlight = null;
+        this.starlightFailed = false;
+        this.blockedSince = null;
         this.layerState = '';
         this.map.wait('');
         this.setMapMessage('');
@@ -260,6 +461,9 @@ class ClusterService extends EventEmitter {
         this.timer = null;
         this.retryAt = 0;
         this.failures = 0;
+        this.silverFailed = false;
+        this.liveSince = null;
+        this.missingSince = null;
         this.releaseClient();
         this.report('BMW original active');
     }

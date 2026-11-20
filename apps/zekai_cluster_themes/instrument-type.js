@@ -27,4 +27,4 @@ function instrumentType(canvas, x, y, scale, ink, sizeRatio = 1) {
     };
 }
 
-module.exports = { instrumentType, FONTS };
+module.exports = { instrumentType, FONTS, TEXT_SIZE_RATIO };

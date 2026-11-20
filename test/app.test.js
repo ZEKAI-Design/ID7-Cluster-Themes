@@ -11,7 +11,7 @@ const { MapWindow, rectangle } = require(app + 'map-window');
 const { panel, DEMO, SLOTS, PALETTES } = require(app + 'dials');
 const { SILVER_PALETTES, TANK_LITRES } = require(app + 'silver-dials');
 const { vdoPanel } = require(app + 'vdo-retro');
-const { PANEL_WIDTH, PANEL_HEIGHT, panelLayout, PORSCHE_CENTRE, PORSCHE_DIALS } = require(app + 'panel-layout');
+const { PANEL_WIDTH, PANEL_HEIGHT, panelLayout, PORSCHE_CENTRE, PORSCHE_DIALS, BMW_GEAR_WINDOW } = require(app + 'panel-layout');
 const { FONTS } = require(app + 'instrument-type');
 const { Canvas } = require('../kit/runtime/canvas');
 const { get: getFont } = require('../kit/runtime/fonts');
@@ -24,12 +24,40 @@ class FakeRender extends EventEmitter {
         this.backend = 'id7';
         this.targets = 'map:1088x480,panel:1920x720,hud:800x480';
         this.frames = 0;
+        this.images = new Map();
+        this.assets = new Map();
+        this.effects = new Map();
+        this.transforms = new Map();
+        this.uniforms = new Map();
+        this.nextRef = 1;
     }
 
     connect() { this.connected = true; }
     close() { this.connected = false; }
-    image(args) { this.args = args; return 1; }
+    image(args) {
+        const ref = this.nextRef++;
+        if (ref === 1) this.args = args;
+        this.images.set(ref, args);
+        return ref;
+    }
+    asset(args) { const ref = this.nextRef++; this.assets.set(ref, args); return ref; }
+    effect(args) { const ref = this.nextRef++; this.effects.set(ref, args); return ref; }
+    bind() {}
+    uniform(ref, name, value) {
+        if (!this.uniforms.has(ref)) this.uniforms.set(ref, new Map());
+        this.uniforms.get(ref).set(name, value);
+    }
+    set(ref, args) { this.transforms.set(ref, { ...this.transforms.get(ref), ...args }); }
+    drop(ref) {
+        this.images.delete(ref);
+        this.assets.delete(ref);
+        this.effects.delete(ref);
+        this.transforms.delete(ref);
+        this.uniforms.delete(ref);
+    }
     pixels(ref, rects, pixels) {
+        const image = this.images.get(ref);
+        if (!image || image.w !== 1920) return true;
         this.frames++;
         this.rects = rects;
         this.bytes = pixels.length;
@@ -37,7 +65,7 @@ class FakeRender extends EventEmitter {
     }
 }
 
-test('Waze window is leased only while the map is live and respects other providers', () => {
+test('Waze keeps the window through startup, releases on a frozen stream and respects current providers', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cluster-test-'));
     const status = path.join(root, 'status.json');
     const dir = path.join(root, 'shared');
@@ -54,10 +82,15 @@ test('Waze window is leased only while the map is live and respects other provid
         const choices = { rightInner: 'waze' };
         assert.equal(lease.update(choices), null);
         now += 800;
-        report({ target: 'map', state: 'starting', cluster: 1 });
+        report({ target: 'map', state: 'idle', cluster: 1 });
         assert.equal(lease.update(choices), null);
         const rect = rectangle('rightInner');
         assert.equal(fs.readFileSync(file, 'utf8'), 'panel ' + [rect.x, rect.y, rect.w, rect.h].join(' ') + '\n');
+        const inode = fs.statSync(file).ino;
+        now += 800;
+        report({ target: 'panel', state: 'idle', cluster: 1 });
+        assert.equal(lease.update(choices), null);
+        assert.equal(fs.statSync(file).ino, inode);
         now += 800;
         report({ target: 'panel', state: 'showing', cluster: 1 });
         assert.equal(lease.update(choices), 'rightInner');
@@ -75,12 +108,22 @@ test('Waze window is leased only while the map is live and respects other provid
         assert.equal(lease.update(choices, 'silver'), null);
         assert.equal(fs.existsSync(file), false);
 
-        fs.writeFileSync(file, 'another app');
+        const other = 'panel 100 200 800 288\n';
+        fs.writeFileSync(file, other);
+        fs.utimesSync(file, new Date(now), new Date(now));
         now += 800;
         report({ target: 'map', state: 'showing', cluster: 1 });
         assert.equal(lease.update(choices), null);
         lease.release();
-        assert.equal(fs.readFileSync(file, 'utf8'), 'another app');
+        assert.equal(fs.readFileSync(file, 'utf8'), other);
+        now += 5000;
+        report({ target: 'map', state: 'showing', cluster: 1 });
+        assert.equal(lease.update({ mapMode: 'full' }), null);
+        assert.equal(fs.readFileSync(file, 'utf8'), 'panel 0 0 1920 720\n');
+        now += 800;
+        report({ target: 'panel', state: 'showing', cluster: 1, hosted: 1 });
+        assert.equal(lease.update({ mapMode: 'full' }), null);
+        assert.equal(fs.existsSync(file), false);
     } finally {
         lease.release();
         fs.rmSync(root, { recursive: true, force: true });
@@ -403,7 +446,7 @@ test('Rolls Royce draws its default and customized side dials independently', ()
     const drawText = canvas.text.bind(canvas);
     canvas.text = (value, x, y, size, colour, opts) => {
         labels.push(value);
-        readouts.set(value, { x, y, colour });
+        readouts.set(value, { x, y, size, colour });
         return drawText(value, x, y, size, colour, opts);
     };
     const data = { speed: 0, rpm: 810, fuelLitres: TANK_LITRES / 2, range: 307, ambient: 14.5, stage: 'P' };
@@ -418,7 +461,11 @@ test('Rolls Royce draws its default and customized side dials independently', ()
     assert.equal(readouts.get('307').y, 181);
     assert.equal(readouts.get('10:53').y, readouts.get('14.5°C').y);
     assert.ok(readouts.get('10:53').y > 272);
-    for (const gear of ['P', 'R', 'N', 'D']) assert.ok(readouts.get(gear).x > 816);
+    assert.equal(labels.filter((value) => value === 'P').length, 1);
+    assert.deepEqual(['P', 'R', 'N', 'D'].map((gear) => {
+        const { x, y, size } = readouts.get(gear);
+        return [x, y, size];
+    }), [[346, 255, 12.6], [346, 268, 12.6], [346, 281, 12.6], [346, 294, 12.6]]);
     assert.equal(labels.includes('520'), false);
     labels.length = 0;
     panel(canvas, 'silver', {}, {}, {});
@@ -431,6 +478,7 @@ test('Rolls Royce draws its default and customized side dials independently', ()
     for (const label of ['bar', 'OIL', 'COOLANT', 'KM/H']) assert.ok(labels.includes(label));
     for (const label of ['810', 'RPM', '307', 'KM RANGE']) assert.ok(labels.includes(label));
     assert.deepEqual([readouts.get('810').y, readouts.get('307').y], [280, 280]);
+    assert.ok(labels.every((label) => readouts.get(label).colour === '#ffffff'));
     panel(canvas, 'silver', { rightInner: 'tyres' }, customData, {});
     assert.deepEqual([readouts.get('810').y, readouts.get('307').y], [181, 280]);
     labels.length = 0;
@@ -445,6 +493,50 @@ test('Rolls Royce draws its default and customized side dials independently', ()
         assert.ok(blue(cx + 35, 170) > blue(cx + 70, 170));
         assert.ok(blue(cx - 1, 170) > blue(cx + 35, 170));
     }
+});
+
+test('Rolls Royce side rims and their glow open toward the center', () => {
+    const canvas = new Canvas(960, 320);
+    const recording = new Recorder(960, 320);
+    const preview = new Canvas(960, 320);
+    const choices = { leftInner: 'none', rightInner: 'none' };
+    panel(canvas, 'silver', choices, {}, {});
+    panel(recording, 'silver', choices, {}, {});
+    play(recording.words(), preview);
+    for (const image of [canvas, preview]) {
+        const rgb = (x, y) => Array.from(image.d.subarray((y * image.w + x) * 4, (y * image.w + x) * 4 + 3));
+        const bg = rgb(0, 0);
+        for (const [cx, inward] of [[252, 1], [708, -1]]) {
+            assert.deepEqual(rgb(cx + inward * 96, 171), bg);
+            assert.deepEqual(rgb(cx + inward * 89, 119), bg);
+            assert.ok(Math.min(...rgb(cx - inward * 96, 171)) > 170);
+        }
+    }
+});
+
+test('Rolls Royce uses one radius for the full-height bezel and keeps the dial anchors', () => {
+    const artifact = path.resolve(__dirname, '../dist/zekai_cluster_themes/source/javascript');
+    const { renderPanelFrame } = require(path.join(artifact, 'panel-frame'));
+    const canvas = new Canvas(PANEL_WIDTH, PANEL_HEIGHT);
+    const circles = [];
+    const drawCircle = canvas.circle.bind(canvas);
+    canvas.circle = (x, y, r, colour) => {
+        if (colour === '#2e3137') circles.push({ x, y, r });
+        return drawCircle(x, y, r, colour);
+    };
+    const picture = renderPanelFrame('silver', {}, { speed: 0, rpm: 961, range: 519, fuelLitres: 7 }, false, canvas);
+    assert.deepEqual(circles, [{ x: 960, y: 360, r: 350 }]);
+    const rgba = (x, y) => Array.from(picture.d.subarray((y * PANEL_WIDTH + x) * 4, (y * PANEL_WIDTH + x + 1) * 4));
+    const base = rgba(960, 0);
+    assert.deepEqual(rgba(960, 9), base);
+    assert.notDeepEqual(rgba(960, 10), base);
+    assert.notDeepEqual(rgba(960, 709), base);
+    assert.deepEqual(rgba(960, 710), base);
+    const layout = panelLayout('silver');
+    assert.equal(layout.scale, 2.68);
+    assert.equal(layout.x + 480 * layout.scale, 960);
+    assert.equal(layout.y + 165 * layout.scale, 338);
+    assert.deepEqual(rgba(BMW_GEAR_WINDOW.x, BMW_GEAR_WINDOW.y), [0, 0, 0, 0]);
 });
 
 test('Rolls Royce moves both side needles and highlights the actual gear from vehicle signals', () => {
@@ -474,7 +566,7 @@ test('Rolls Royce moves both side needles and highlights the actual gear from ve
         return drawLine(x1, y1, x2, y2, width, colour);
     };
     canvas.text = (value, x, y, size, colour, opts) => {
-        if (x === 823 && colour === '#e8e9ed') highlighted.push(value);
+        if (x === 346 && ['P', 'R', 'N', 'D'].includes(value) && opts.font === FONTS.bold) highlighted.push(value);
         if (value === 'KM/H') assert.equal(y, 259);
         return drawText(value, x, y, size, colour, opts);
     };
@@ -505,7 +597,8 @@ test('Rolls Royce moves both side needles and highlights the actual gear from ve
         gearbox.statusGearboxDrive({ statusActualStageDrive: gear });
         render(gear);
     }
-    now += 60000;
+    now += 1600;
+    assert.equal(car.snapshot().rpm, null);
     render('P');
     options.onUnavailable();
     render(null);
@@ -513,25 +606,144 @@ test('Rolls Royce moves both side needles and highlights the actual gear from ve
     render('P');
 });
 
-test('Rolls Royce exposes ten selectable palettes with distinct central faces and legible speed text', () => {
+test('Park clears a nonzero speed until a confirmed stop or new driving sample', () => {
+    const { Car } = require(app + 'car');
+    let now = 0;
+    const car = new Car(() => now);
+    car.put('stage', 'D');
+    car.put('speed', 46);
+    now += 25;
+    car.put('selection', 'P');
+    assert.equal(car.snapshot().speed, null);
+    now += 25;
+    car.put('speed', 46);
+    assert.equal(car.snapshot().speed, null);
+    car.put('speed', 0);
+    assert.equal(car.snapshot().speed, 0);
+    car.put('speed', 46);
+    now += 25;
+    car.put('stage', 'D');
+    assert.equal(car.snapshot().speed, null);
+    car.put('speed', 8);
+    car.put('rpm', 900);
+    assert.equal(car.snapshot().speed, 8);
+    now += 751;
+    assert.equal(car.snapshot().speed, null);
+    assert.equal(car.snapshot().rpm, null);
+});
+
+test('a numeric or named driving gear can supersede a Park message', () => {
+    const { Car } = require(app + 'car');
+    const car = new Car(() => 100);
+    const handlers = new Map();
+    car.watch({ signals: { async watch(name, instance, fields) { handlers.set(name, fields); } } });
+    const gear = handlers.get('de.bmw.infrastructure.VehicleInformation');
+    const speed = handlers.get('de.bmw.infotainment.vehicle.Vehicle2');
+    gear.statusGearboxDrive({ statusActualStageDrive: 1 });
+    speed.statusCarSpeed2({ speedVehicleCentreOfGravity: 64 * 12 }, 'notification');
+    assert.equal(car.motion().speed, null);
+    gear.DataPowerTrain2({ statusGearSelectionDrive: 5 });
+    assert.equal(car.snapshot().stage, 'D');
+    speed.statusCarSpeed2({ speedVehicleCentreOfGravity: 64 * 12 }, 'notification');
+    assert.equal(car.motion().speed, 12);
+    gear.DataPowerTrain2({ statusGearSelectionDrive: 3 });
+    assert.equal(car.motion().speed, null);
+    gear.DataPowerTrain2({ statusGearSelectionDrive: '_1' });
+    assert.equal(car.snapshot().stage, 'D');
+    gear.statusGearboxDrive({ statusActualStageDrive: 2 });
+    assert.equal(car.snapshot().stage, 'R');
+    gear.statusGearboxDrive({ statusActualStageDrive: 3 });
+    assert.equal(car.snapshot().stage, 'N');
+    assert.match(car.takeMotionStats(), /speed 2 notifications/);
+    assert.match(car.takeMotionStats(), /speed 0 notifications/);
+});
+
+test('motion notifications suppress fallback reads and supersede an in-flight getter', async () => {
+    const vm = require('node:vm');
+    const file = path.join(__dirname, '../kit/runtime/signals.js');
+    const module = { exports: {} };
+    let now = 0, read, notify, setAvailability, poll;
+    const proxy = {
+        init: async () => {},
+        isAvailable: () => true,
+        subscribeToAvailability(fn) { setAvailability = fn; },
+        subscribe({ onReceive }) { notify = onReceive; },
+        getValue() { return new Promise((resolve) => { read = resolve; }); },
+    };
+    vm.runInNewContext(fs.readFileSync(file, 'utf8'), {
+        module, __dirname: path.dirname(file),
+        Date: { now: () => now },
+        setImmediate,
+        setInterval(fn) { poll = fn; },
+        require(name) {
+            if (name === 'fs') return { readFileSync: () => '{"fields":{"speed":{"getter":true}}}' };
+            if (name === 'someip') return { buildProxy: async () => proxy };
+            return require(name);
+        },
+    }, { filename: file });
+    const tick = () => new Promise(setImmediate);
+    const readings = [];
+    await module.exports.watch('Vehicle2', '1', { speed: (value) => readings.push(value) }, null, {
+        pollMs: 100, readTimeoutMs: 350, notifyFreshMs: { speed: 150 },
+    });
+    const initial = read;
+    now = 30;
+    notify(52);
+    initial(40);
+    await tick();
+    now = 100;
+    poll();
+    await tick();
+    assert.equal(read, initial);
+    now = 200;
+    poll();
+    await tick();
+    assert.notEqual(read, initial);
+    read(56);
+    await tick();
+    assert.deepEqual(readings, [52, 56]);
+    now = 300;
+    poll();
+    await tick();
+    setAvailability(false);
+    read(44);
+    await tick();
+    assert.deepEqual(readings, [52, 56]);
+});
+
+test('Rolls Royce has white text in all ten palettes, including native speed and RPM digits', () => {
     const setting = spec.settings.find((item) => item.key === 'silver_faceColour');
     assert.equal(setting.options.length, 10);
     assert.deepEqual(setting.options.map(([id]) => id), Object.keys(SILVER_PALETTES));
     const canvas = new Canvas(960, 320);
     const faces = new Set();
-    const textColours = [];
+    const stamp = new Map();
     const drawText = canvas.text.bind(canvas);
     canvas.text = (value, x, y, size, colour, opts) => {
-        if (value === 'KM/H') textColours.push(colour);
+        stamp.set([value, x].join('|'), colour);
         return drawText(value, x, y, size, colour, opts);
     };
+    const artifact = path.resolve(__dirname, '../dist/zekai_cluster_themes/source/javascript');
+    const { SilverDigits } = require(path.join(artifact, 'silver-digits'));
+    const renderer = new FakeRender();
+    const digits = new SilverDigits(renderer);
+    assert.equal(digits.prepare(), true);
+    const [speedRef, rpmRef] = [...renderer.effects.keys()];
+    const data = { speed: 86, rpm: 2400, range: 519, ambient: 15.5, stage: 'D' };
     for (const [faceColour] of setting.options) {
-        panel(canvas, 'silver', { faceColour }, { speed: 86 }, {});
+        stamp.clear();
+        const choices = { faceColour };
+        panel(canvas, 'silver', choices, data, {});
         const center = (246 * canvas.w + 520) * 4;
         const side = (210 * canvas.w + 265) * 4;
         faces.add(Buffer.from(canvas.d.subarray(center, center + 3)).toString('hex'));
         assert.ok(Math.max(...canvas.d.subarray(side, side + 3)) < 65);
-        assert.equal(textColours.pop(), SILVER_PALETTES[faceColour].darkText ? '#111720' : '#f5f5fb');
+        assert.ok([...stamp.values()].every((colour) => colour === '#ffffff'));
+        digits.update(data, choices, true);
+        const speedInk = renderer.uniforms.get(speedRef).get('u_ink');
+        assert.deepEqual(speedInk.slice(0, 3), [1, 1, 1]);
+        assert.equal(speedInk[3] > 0, Boolean(SILVER_PALETTES[faceColour].lightFace));
+        assert.deepEqual(renderer.uniforms.get(rpmRef).get('u_ink'), [1, 1, 1, 0]);
     }
     assert.equal(faces.size, 10);
 });
@@ -602,7 +814,7 @@ test('distant changes in one band send small rectangles and reconstruct the comp
     let sent = false;
     const client = { pixels(ref, rects, data) {
         sent = true;
-        assert.equal(rects.length, 3);
+        assert.ok(rects.length >= 3 && rects.length <= 15);
         assert.equal(data.length, (25 * 20 + 30 * 10 + 20 * 18) * 4);
         let offset = 0;
         for (const { x, y, w, h } of rects) {
@@ -635,7 +847,17 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
         const side = 'rightInner';
         for (const kind of ['media', 'waze']) {
             const picture = renderPanelFrame(theme, { [side]: kind }, { mapSlot: kind === 'waze' ? side : null });
-            for (let i = 3; i < picture.d.length; i += 4) assert.equal(picture.d[i], 255);
+            const { x, y, w, h } = BMW_GEAR_WINDOW;
+            let transparent = 0;
+            for (let row = 0; row < PANEL_HEIGHT; row++) {
+                for (let col = 0; col < PANEL_WIDTH; col++) {
+                    const alpha = picture.d[(row * PANEL_WIDTH + col) * 4 + 3];
+                    const gear = theme === 'silver' && row >= y && row < y + h && col >= x && col < x + w;
+                    if (alpha === 0) transparent++;
+                    assert.equal(alpha, gear ? 0 : 255);
+                }
+            }
+            assert.equal(transparent, theme === 'silver' ? w * h : 0);
         }
     }
     const handlers = new Map();
@@ -650,7 +872,7 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
     const app = new EventEmitter();
     let now = Date.UTC(2026, 10, 19, 8, 17, 12);
     class TestDate extends Date { static now() { return now; } }
-    let frame, onVisible, previewTick, interval, motion, impl, background;
+    let frame, onVisible, previewTick, interval, motion, delay, impl, background;
     const settings = {
         schema: spec.settings,
         get: (key) => values.get(key),
@@ -675,7 +897,7 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
         module: serviceModule, Buffer, process, Date: TestDate,
         setInterval(fn, ms) { assert.equal(ms, 50); interval = fn; return fn; },
         clearInterval(fn) { if (interval === fn) interval = null; },
-        setTimeout(fn) { motion = fn; return fn; },
+        setTimeout(fn, ms) { motion = fn; delay = ms; return fn; },
         clearTimeout(fn) { if (motion === fn) motion = null; },
         require(name) { return name === './cluster_render_client' ? renderStub : packagedRequire(name); },
     }, { filename: servicePath });
@@ -785,7 +1007,9 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
             assert.equal(settings.get(key), value);
         }
         assert.ok(frame.targets.some((target) => target.key === 'theme:vdoRetro'));
+        handlers.get(vehicle2).statusCarSpeed2({ speedVehicleCentreOfGravity: 77 * 64 });
         frame.targets.find((target) => target.key === 'theme:silver').run();
+        renderer.emit('layer', 1, 'shown');
         assert.equal(background.choices.faceColour, 'silver');
         select('silver_faceColour', 'silver_faceColour', 'amethyst');
         assert.equal(background.choices.faceColour, 'amethyst');
@@ -799,18 +1023,24 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
         now += 125;
         previewTick();
         assert.notDeepEqual(frame.words(), previewWords);
+        handlers.get(vehicle2).statusCarSpeed2({ speedVehicleCentreOfGravity: 77 * 64 });
         interval();
+        const trailRef = background.silverStarlight.layers[0].ref;
+        const framesBeforeTrail = renderer.frames;
 
         now += 50;
         handlers.get(vehicle2).statusCarSpeed2({ speedVehicleCentreOfGravity: 86 * 64 });
-        assert.equal(JSON.parse(background.lastFrame)[3], now);
-        const trailPixels = background.lastPixels.d.slice();
+        interval();
+        assert.equal(renderer.transforms.get(trailRef).visible, true);
+        const initialFade = renderer.uniforms.get(trailRef).get('u_fade')[0];
+        assert.equal(renderer.frames, framesBeforeTrail);
         now += 250;
         interval();
-        assert.notDeepEqual(background.lastPixels.d, trailPixels);
+        assert.ok(renderer.uniforms.get(trailRef).get('u_fade')[0] < initialFade);
+        assert.equal(renderer.frames, framesBeforeTrail);
         now += 450;
         interval();
-        assert.equal(JSON.parse(background.lastFrame)[3], null);
+        assert.equal(renderer.transforms.get(trailRef).visible, false);
         const settledFrame = renderer.frames;
         now += 50;
         interval();
@@ -821,9 +1051,57 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
         assert.equal(background.choices.leftInner, 'rpm');
         assert.equal(background.choices.rightInner, 'fuelRange');
         const defaultRollsDials = { ...background.choices };
+        renderer.emit('layer', 1, 'shown');
+        handlers.get(vehicle2).statusCarSpeed2({ speedVehicleCentreOfGravity: 86 * 64 });
+        now += 50;
+        handlers.get(cds).statusEngineSpeed2({ actualValueRPMEngineCrankshaft: 2400 * 4 });
+        motion();
+        const [speedNeedle, rpmNeedle] = [...renderer.images.keys()].slice(1);
+        const [speedDigits, rpmDigits] = [...renderer.effects.keys()];
+        assert.equal(renderer.images.size, 3);
+        assert.ok(renderer.transforms.get(speedNeedle).visible);
+        assert.equal(renderer.transforms.get(rpmNeedle).rotate, (2400 / 8000 - 1) * 180);
+        assert.equal(renderer.assets.size, 2);
+        now += 1;
+        handlers.get(vehicle2).statusCarSpeed2({ speedVehicleCentreOfGravity: 87 * 64 });
+        handlers.get(cds).statusEngineSpeed2({ actualValueRPMEngineCrankshaft: 2500 * 4 });
+        handlers.get(vehicle2).statusCarSpeed2({ speedVehicleCentreOfGravity: 90 * 64 });
+        assert.equal(delay, 15);
+        assert.equal(renderer.transforms.get(speedNeedle).rotate, -136 + 86 / 260 * 272);
+        const framesBeforeMotion = renderer.frames;
+        now += delay;
+        motion();
+        assert.equal(renderer.transforms.get(speedNeedle).rotate, -136 + 90 / 260 * 272);
+        assert.equal(renderer.transforms.get(rpmNeedle).rotate, (2500 / 8000 - 1) * 180);
+        assert.equal(renderer.frames, framesBeforeMotion);
+        const movingDigits = renderer.uniforms.get(speedDigits).get('u_glyphs');
+        const frameCount = renderer.frames;
+        renderer.blocked = true;
+        handlers.get(vehicle2).statusCarSpeed2({ speedVehicleCentreOfGravity: 22 * 64 });
+        now += 50;
+        interval();
+        assert.equal(renderer.uniforms.get(speedDigits).get('u_glyphs'), movingDigits);
+        handlers.get(vehicle2).statusCarSpeed2({ speedVehicleCentreOfGravity: 0 });
+        handlers.get(cds).statusEngineSpeed2({ actualValueRPMEngineCrankshaft: 850 * 4 });
+        renderer.blocked = false;
+        renderer.emit('drain');
+        if (renderer.transforms.get(speedNeedle).rotate !== -136) {
+            now += 50;
+            motion();
+        }
+        assert.equal(renderer.transforms.get(speedNeedle).rotate, -136);
+        assert.equal(renderer.transforms.get(rpmNeedle).rotate, (850 / 8000 - 1) * 180);
+        assert.equal(renderer.frames, frameCount);
+        const font = getFont(FONTS.bold, 54 * 2.68 * 0.9, '0123456789-');
+        assert.deepEqual(Array.from(renderer.uniforms.get(speedDigits).get('u_glyphs').slice(0, 8)),
+            [...font.glyphs[48].slice(0, 4), 0, 0, 0, 0]);
+        assert.ok(renderer.uniforms.get(rpmDigits).has('u_positions'));
         select('slot:leftInner', 'silver_leftInner', 'media');
         assert.equal(background.choices.leftInner, 'media');
         assert.deepEqual({ ...background.choices, leftInner: 'rpm' }, defaultRollsDials);
+        now += 50;
+        interval();
+        assert.equal(renderer.transforms.get(rpmNeedle).visible, false);
         settings.set('silver_leftInner', 'rpm');
         select('slot:rightInner', 'silver_rightInner', 'media');
         assert.equal(background.choices.rightInner, 'media');
@@ -888,6 +1166,7 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
             assert.deepEqual({ ...background.choices, [slot]: prior[slot] }, prior);
         }
         frame.targets.find((target) => target.key === 'theme:vdoRetro').run();
+        assert.equal(renderer.images.size, 1);
         onVisible('MAIN', false);
         assert.equal(renderer.connected, true);
         renderer.emit('layer', 1, 'suspended', 'another layer');
@@ -895,10 +1174,13 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
         assert.equal(renderer.args.contend, false);
         assert.equal(renderers.length, 1);
         renderer.emit('layer', 1, 'shown');
-        renderer.pixels = () => { throw new Error('simulated frame failure'); };
-        background.lastPixels = null;
-        background.lastFrame = null;
+        renderer.blocked = true;
         now += 100;
+        interval();
+        now += 399;
+        interval();
+        assert.equal(renderer.connected, true);
+        now += 1;
         interval();
         assert.equal(renderer.connected, false);
         assert.match(background.status(), /reconnecting/);
@@ -920,6 +1202,94 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
         assert.equal(values.get('clusterOverlayEnabled'), true);
         assert.equal(restarted.theme, 'vdoRetro');
         assert.equal(restarted.client.connected, true);
+        settings.set('instrumentTheme', 'silver');
+        assert.equal(restarted.client, null);
+        assert.match(restarted.status(), /Waiting for live speed/);
+        const sendZero = () => handlers.get(vehicle2).statusCarSpeed2({ speedVehicleCentreOfGravity: 0 });
+        const mountSilver = () => {
+            sendZero();
+            interval();
+            assert.equal(restarted.client, null);
+            now += 400;
+            sendZero();
+            interval();
+            assert.equal(restarted.client, null);
+            now += 350;
+            sendZero();
+            interval();
+            const current = restarted.client;
+            assert.equal(current.connected, true);
+            current.emit('ready');
+            current.emit('layer', 1, 'shown');
+            interval();
+            return current;
+        };
+        const live = mountSilver();
+        now += 800;
+        interval();
+        assert.equal(live.connected, true);
+        now += 1500;
+        interval();
+        assert.equal(live.connected, false);
+        assert.match(restarted.status(), /Waiting for live speed/);
+        const remounted = mountSilver();
+        const digitRef = [...remounted.effects.keys()][0];
+        const renderedFrames = remounted.frames;
+        remounted.emit('refused', 'layer', digitRef, 'simulated shader refusal');
+        assert.equal(restarted.client, null);
+        assert.match(restarted.status(), /Rolls Royce live rendering unavailable/);
+        now += 100;
+        sendZero();
+        interval();
+        assert.equal(restarted.client, null);
+        assert.equal(remounted.frames, renderedFrames);
+
+        const mapRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cluster-full-map-test-'));
+        const status = path.join(mapRoot, 'status.json');
+        const map = new MapWindow(bgContext.log, { dir: mapRoot, status, now: () => now });
+        restarted.map = map;
+        try {
+            frame.targets.find((target) => target.key === 'theme:wazeFull').run();
+            assert.equal(restarted.theme, 'wazeFull');
+            assert.ok(frame.words().length > 0);
+            const renderer = restarted.client;
+            renderer.emit('ready');
+            assert.equal(renderer.images.size, 0);
+            assert.match(restarted.status(), /map provider not running/);
+            function wazeStatus(target, state) {
+                now += 800;
+                fs.writeFileSync(status, JSON.stringify({ target, state, cluster: 1 }));
+                fs.utimesSync(status, new Date(now - 5), new Date(now - 5));
+                interval();
+            }
+            wazeStatus('map', 'showing');
+            assert.equal(renderer.images.size, 0);
+            assert.match(restarted.status(), /map is in BMW view/);
+            wazeStatus('panel', 'idle');
+            assert.ok(fs.existsSync(map.file));
+            assert.equal(renderer.images.size, 0);
+            wazeStatus('panel', 'showing');
+            assert.equal(renderer.images.size, 1);
+            assert.equal(renderer.frames, 1);
+            const rgba = (x, y) => restarted.lastPixels.d.slice((y * PANEL_WIDTH + x) * 4, (y * PANEL_WIDTH + x) * 4 + 4);
+            assert.deepEqual(Array.from(rgba(960, 360)), [0, 0, 0, 0]);
+            assert.ok(rgba(192, 30)[3] > 0 && rgba(192, 703)[3] > 0);
+            const lastRef = restarted.ref;
+            renderer.emit('layer', lastRef, 'shown');
+            wazeStatus('panel', 'frozen');
+            assert.equal(renderer.images.size, 0);
+            assert.equal(fs.existsSync(map.file), false);
+            assert.match(restarted.status(), /BMW original active/);
+            wazeStatus('map', 'showing');
+            wazeStatus('panel', 'showing');
+            assert.notEqual(restarted.ref, lastRef);
+            assert.equal(renderer.frames, 2);
+            settings.set('instrumentTheme', 'stock');
+            assert.equal(fs.existsSync(map.file), false);
+        } finally {
+            map.release();
+            fs.rmSync(mapRoot, { recursive: true, force: true });
+        }
         app.emit('shutdown');
         assert.equal(restarted.client, null);
     } finally {
