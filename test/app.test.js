@@ -332,7 +332,7 @@ test('Porsche range arc follows the live range and stays empty with no reading',
     }
 });
 
-test('Porsche gauges draw real readings and omit the needle when voltage or pressure is unavailable', () => {
+test('Porsche gauges use voltage or SOC, and omit the needle for unavailable readings', () => {
     const canvas = new Canvas(960, 320);
     const labels = [];
     let needles = 0;
@@ -372,11 +372,17 @@ test('Porsche gauges draw real readings and omit the needle when voltage or pres
     labels.length = 0;
     needles = 0;
     panel(canvas, 'five', slots, { batteryCharge: 83 }, {});
-    assert.equal(needles, 0);
-    assert.ok(label('83% SOC'));
+    assert.equal(needles, 1);
+    assert.ok(label('83%'));
+    assert.ok(label('SOC %'));
+    assert.ok(label('100'));
+    assert.equal(label('V'), undefined);
     assert.ok(label('-- km'));
     assert.ok(label('--°C'));
     assert.equal(label('0.0 bar'), undefined);
+    needles = 0;
+    panel(canvas, 'five', slots, {}, {});
+    assert.equal(needles, 0);
 });
 
 test('Porsche shows total mileage from the BMW signal until the next sample', () => {
@@ -1117,7 +1123,7 @@ test('packaged theme starts without the UI, fills the panel and remembers manual
         assert.deepEqual({ ...background.choices, rightInner: 'fuelRange' }, defaultRollsDials);
         const mediaInterface = 'de.bmw.infotainment.hmi.hmimediastate.HmiMediaState';
         const mediaProxy = packagedRequire('../manifest.json').proxies[mediaInterface];
-        assert.deepEqual(mediaProxy, { instances: 'HMI_CID', attributes: { playerMetadata: 'rs' } });
+        assert.deepEqual(mediaProxy, { instances: 'HMI_CID', attributes: { playerMetadata: 'rs', coverArt: 'rs' } });
         assert.equal(watchInstances.get(mediaInterface), mediaProxy.instances);
         const receiveMedia = handlers.get(mediaInterface).playerMetadata;
         receiveMedia({ sink: 'FRONT', firstLineType: 1, firstLineText: 'Front Artist',
